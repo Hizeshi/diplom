@@ -43,7 +43,8 @@ type Config struct {
 	CORSAllowOrigin string
 
 	// Payment
-	PaymentBaseURL string
+	PaymentBaseURL        string
+	PaymentWebhookSecret  string
 
 	// Product page base URL (used in chat for product links)
 	ProductURL string
@@ -61,6 +62,7 @@ func Load() (*Config, error) {
 		TelegramBaseURL:      getEnv("TELEGRAM_BASE_URL", "https://api.telegram.org"),
 		CORSAllowOrigin:      getEnv("CORS_ALLOW_ORIGIN", "*"),
 		PaymentBaseURL:       os.Getenv("PAYMENT_BASE_URL"),
+		PaymentWebhookSecret: os.Getenv("PAYMENT_WEBHOOK_SECRET"),
 		ProductURL:           getEnv("PRODUCT_URL", "https://iq-home.kz/products/"),
 
 		DatabaseURL:            os.Getenv("DATABASE_URL"),
@@ -93,11 +95,14 @@ func MustLoad() *Config {
 
 func (c *Config) validate() error {
 	required := map[string]string{
-		"DATABASE_URL":               c.DatabaseURL,
-		"INTERNAL_TOKEN":             c.InternalToken,
-		"SUPABASE_URL":               c.SupabaseURL,
-		"SUPABASE_SERVICE_ROLE_KEY":  c.SupabaseServiceRoleKey,
-		"OPENAI_API_KEY":             c.OpenAIAPIKey,
+		"DATABASE_URL":              c.DatabaseURL,
+		"INTERNAL_TOKEN":            c.InternalToken,
+		"SUPABASE_URL":              c.SupabaseURL,
+		"SUPABASE_SERVICE_ROLE_KEY": c.SupabaseServiceRoleKey,
+		"OPENAI_API_KEY":            c.OpenAIAPIKey,
+		"PAYMENT_WEBHOOK_SECRET":    c.PaymentWebhookSecret,
+		"ADMIN_USERNAME":            c.AdminUsername,
+		"ADMIN_PASSWORD":            c.AdminPassword,
 	}
 	for name, val := range required {
 		if val == "" {

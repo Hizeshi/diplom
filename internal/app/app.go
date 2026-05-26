@@ -156,7 +156,7 @@ func New(cfg *config.Config) *App {
 		Chat:          chathandler.New(chatService),
 		Admin:         adminhandler.New(adminService),
 		Contact:       contacthandler.New(contactService),
-		Payment:       paymenthandler.New(paymentService),
+		Payment:       paymenthandler.New(paymentService, cfg.PaymentWebhookSecret),
 		ProductImage:  productimagehandler.New(productImageService),
 		ProductImport: productimporthandler.New(productImportService),
 		Quote:         quotehandler.New(quoteService),

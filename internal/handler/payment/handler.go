@@ -2,7 +2,13 @@ package paymenthandler
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 
 	"iq-home/backend/internal/domain/payment"
@@ -14,27 +20,72 @@ type service interface {
 }
 
 type Handler struct {
-	svc service
+	svc    service
+	secret []byte
 }
 
-func New(svc service) *Handler {
-	return &Handler{svc: svc}
+func New(svc service, secret string) *Handler {
+	return &Handler{svc: svc, secret: []byte(secret)}
 }
 
 // POST /api/payment/webhook
 func (h *Handler) Process(w http.ResponseWriter, r *http.Request) {
+	// Read raw body so we can verify signature before decoding.
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		respond.BadRequest(w, "cannot read body")
+		return
+	}
+
+	// Verify HMAC-SHA256 signature. Fail closed: no secret configured = reject all.
+	sig := r.Header.Get("X-Payment-Signature")
+	if !h.validSignature(sig, body) {
+		respond.Unauthorized(w)
+		return
+	}
+
 	var p payment.WebhookPayload
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+	if err := json.Unmarshal(body, &p); err != nil {
 		respond.BadRequest(w, "invalid body")
 		return
 	}
-	if p.OrderID == 0 || p.Status == "" {
-		respond.BadRequest(w, "order_id and status are required")
+	if p.OrderID == 0 {
+		respond.BadRequest(w, "order_id is required")
 		return
 	}
+
 	if err := h.svc.ProcessWebhook(r.Context(), p); err != nil {
-		respond.InternalError(w)
+		switch {
+		case errors.Is(err, payment.ErrUnknownStatus):
+			respond.BadRequest(w, "unknown payment status")
+		case errors.Is(err, payment.ErrOrderNotFound):
+			respond.NotFound(w)
+		case errors.Is(err, payment.ErrAlreadyHandled):
+			// Idempotent: webhook was already processed successfully.
+			respond.OK(w, map[string]bool{"success": true})
+		default:
+			respond.InternalError(w)
+		}
 		return
 	}
+
 	respond.OK(w, map[string]bool{"success": true})
+}
+
+// validSignature computes HMAC-SHA256(secret, body) and compares with sig
+// using constant-time comparison to prevent timing attacks.
+func (h *Handler) validSignature(sig string, body []byte) bool {
+	if len(h.secret) == 0 {
+		return false // fail closed: no secret → reject everything
+	}
+	mac := hmac.New(sha256.New, h.secret)
+	mac.Write(body)
+	expected := hex.EncodeToString(mac.Sum(nil))
+
+	sigBytes := []byte(sig)
+	expBytes := []byte(expected)
+	if len(sigBytes) != len(expBytes) {
+		return false
+	}
+	return subtle.ConstantTimeCompare(sigBytes, expBytes) == 1
 }
