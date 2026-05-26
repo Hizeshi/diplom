@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"iq-home/backend/internal/domain/productimage"
+	"iq-home/backend/pkg/upload"
 )
 
 const bucket = "product-images"
@@ -35,7 +36,7 @@ func New(repo repo, storage storage) *Service {
 
 // Add uploads one image to Supabase Storage and inserts the DB record.
 func (s *Service) Add(ctx context.Context, req productimage.AddRequest) (*productimage.Image, error) {
-	objectPath := fmt.Sprintf("%d/%s", req.ProductID, req.Filename)
+	objectPath := fmt.Sprintf("%d/%s", req.ProductID, upload.UniqueFilename(req.Filename))
 
 	url, err := s.storage.Upload(ctx, bucket, objectPath, req.Data, req.ContentType)
 	if err != nil {
@@ -66,7 +67,7 @@ func (s *Service) BulkUpload(ctx context.Context, items []productimage.BulkUploa
 			continue // skip files with unrecognised names
 		}
 
-		objectPath := fmt.Sprintf("%d/%s", productID, item.Filename)
+		objectPath := fmt.Sprintf("%d/%s", productID, upload.UniqueFilename(item.Filename))
 		url, err := s.storage.Upload(ctx, bucket, objectPath, item.Data, item.ContentType)
 		if err != nil {
 			continue // non-fatal per item

@@ -3,10 +3,10 @@ package chatsvc
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"iq-home/backend/internal/domain/chat"
+	"iq-home/backend/pkg/upload"
 )
 
 // ProcessMedia handles voice/photo/document uploads and returns a ChatResponse.
@@ -31,9 +31,9 @@ func (s *Service) ProcessMedia(ctx context.Context, req chat.MediaRequest) (*cha
 		return nil, fmt.Errorf("media: process %s: %w", req.MessageType, err)
 	}
 
-	// Upload attachment to storage.
-	if len(req.Data) > 0 && req.Filename != "" {
-		objectPath := fmt.Sprintf("%s/%s", req.SessionID, req.Filename)
+	// Upload attachment to storage using a safe, collision-free path.
+	if len(req.Data) > 0 {
+		objectPath := fmt.Sprintf("%s/%s", req.SessionID, upload.UniqueFilename(req.Filename))
 		filePath, _ = s.store.Upload(ctx, "chat-attachments", objectPath, req.Data, req.MimeType)
 	}
 
@@ -108,7 +108,3 @@ func (s *Service) processDocument(ctx context.Context, data []byte, mimeType str
 	return "bot: " + text, nil
 }
 
-// fileExtension returns the extension from a filename (with dot).
-func fileExtension(filename string) string {
-	return filepath.Ext(filename)
-}
