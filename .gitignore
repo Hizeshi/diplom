@@ -1,0 +1,21 @@
+# Binary
+bin/
+
+# Environment / secrets
+ecosystem.config.js
+.env
+*.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go test cache
+*.test
+*.out
