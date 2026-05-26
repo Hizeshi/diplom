@@ -98,6 +98,7 @@ func New(cfg *config.Config, log *slog.Logger, h Handlers) http.Handler {
 		// Admin (BasicAuth)
 		r.Route("/admin", func(r chi.Router) {
 			r.Use(middleware.BasicAuth(cfg.AdminUsername, cfg.AdminPassword))
+			r.Use(middleware.AdminAudit(log))
 
 			r.Get("/chats", h.Admin.ListChats)
 			r.Get("/chats/{sessionId}", h.Admin.GetChatHistory)
