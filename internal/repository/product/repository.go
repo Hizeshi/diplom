@@ -31,7 +31,8 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (*product.Product, e
 			COALESCE(p.stock, 0), COALESCE(p.configurator_type, ''),
 			b.id, b.name,
 			c.id, c.name,
-			s.id, s.name
+			s.id, s.name,
+			COALESCE(p.model_url, '')
 		FROM products p
 		LEFT JOIN brands b         ON b.id = p.brand_id  AND b.deleted_at IS NULL
 		LEFT JOIN colors c         ON c.id = p.color_id
@@ -52,6 +53,7 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (*product.Product, e
 		&brandID, &brandName,
 		&colorID, &colorName,
 		&seriesID, &seriesName,
+		&p.ModelURL,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {

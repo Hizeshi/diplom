@@ -14,6 +14,7 @@ type Product struct {
 	Color            *Ref
 	Series           *Ref
 	Images           []Image
+	ModelURL         string // URL to .glb 3D model for AR preview (empty if not available)
 }
 
 // Ref is a generic {id, name} reference used for brand/color/series.
