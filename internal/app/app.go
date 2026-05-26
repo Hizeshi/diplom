@@ -160,8 +160,8 @@ func New(cfg *config.Config) *App {
 		ProductImage:  productimagehandler.New(productImageService),
 		ProductImport: productimporthandler.New(productImportService),
 		Quote:         quotehandler.New(quoteService),
-		Vectorize:     vectorizehandler.New(vectorizeService),
-		Describe:      describehandler.New(describeService),
+		Vectorize:     vectorizehandler.New(vectorizeService, logr),
+		Describe:      describehandler.New(describeService, logr),
 		Telegram:      telegramHandler,
 		SupabaseAuth:  sbAuth,
 	}
