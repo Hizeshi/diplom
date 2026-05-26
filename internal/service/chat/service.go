@@ -2,6 +2,10 @@ package chatsvc
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -13,10 +17,10 @@ import (
 // ─── Dependency interfaces ────────────────────────────────────────────────────
 
 type chatRepo interface {
-	EnsureSession(ctx context.Context, sessionID, userID, platform string, authUserID *string) error
+	EnsureSession(ctx context.Context, sessionID, userID, platform string, authUserID *string, tokenHash string, trusted bool) (bool, error)
 	GetSession(ctx context.Context, sessionID string) (*chat.Session, error)
 	GetHistory(ctx context.Context, sessionID string, limit int) ([]chat.Message, error)
-	GetPublicHistory(ctx context.Context, sessionID string) ([]chat.PublicMessage, error)
+	GetPublicHistory(ctx context.Context, sessionID, tokenHash string, authUserID *string) ([]chat.PublicMessage, error)
 	SaveMessage(ctx context.Context, sessionID, role, content, senderType, msgType string, meta map[string]any, filePath string) error
 	SearchKnowledge(ctx context.Context, embedding []float32, threshold float64, limit int, topicFilter string) ([]chat.KnowledgeMatch, error)
 }
@@ -87,51 +91,71 @@ func New(
 // ─── HandleMessage ────────────────────────────────────────────────────────────
 
 func (s *Service) HandleMessage(ctx context.Context, req chat.ChatRequest) (*chat.ChatResponse, error) {
-	// 1. Ensure session exists.
+	// 1. Determine token hash for session ownership.
+	//    Trusted callers (internal API, Telegram) skip token enforcement.
+	var rawToken string
+	var tokenHash string
+	if !req.Trusted {
+		if req.SessionToken != "" {
+			tokenHash = hashToken(req.SessionToken)
+		} else {
+			// First message — generate a new ownership token for this session.
+			rawToken = generateToken()
+			tokenHash = hashToken(rawToken)
+		}
+	}
+
 	platform := req.Platform
 	if platform == "" {
 		platform = "web"
 	}
-	if err := s.repo.EnsureSession(ctx, req.SessionID, req.UserID, platform, req.AuthUserID); err != nil {
+
+	// 2. Ensure session exists and verify ownership.
+	isNew, err := s.repo.EnsureSession(ctx, req.SessionID, req.UserID, platform, req.AuthUserID, tokenHash, req.Trusted)
+	if err != nil {
 		return nil, fmt.Errorf("chat: ensure session: %w", err)
 	}
+	// Only return rawToken when we actually created the session with it.
+	if !isNew {
+		rawToken = ""
+	}
 
-	// 2. Check human mode — if active, just save the message and return empty answer.
+	// 3. Check human mode — if active, just save the message and return empty answer.
 	session, err := s.repo.GetSession(ctx, req.SessionID)
 	if err != nil {
 		return nil, fmt.Errorf("chat: get session: %w", err)
 	}
 	if session != nil && session.IsHumanMode {
 		_ = s.repo.SaveMessage(ctx, req.SessionID, "user", req.Message, "user", "text", nil, "")
-		return &chat.ChatResponse{Answer: ""}, nil
+		return &chat.ChatResponse{Answer: "", SessionToken: rawToken}, nil
 	}
 
-	// 3. Short-circuit for ping.
+	// 4. Short-circuit for ping.
 	if isPing(req.Message) {
-		return &chat.ChatResponse{Answer: "Привет! Чем могу помочь?"}, nil
+		return &chat.ChatResponse{Answer: "Привет! Чем могу помочь?", SessionToken: rawToken}, nil
 	}
 
-	// 4. Load conversation history.
+	// 5. Load conversation history.
 	history, err := s.repo.GetHistory(ctx, req.SessionID, 20)
 	if err != nil {
 		s.log.Warn("chat: load history failed", "err", err)
 	}
 
-	// 5. Generate embedding for search.
+	// 6. Generate embedding for search.
 	embedding, err := s.embedder.Embed(ctx, req.Message)
 	if err != nil {
 		s.log.Warn("chat: embed failed, continuing without vector", "err", err)
 	}
 
-	// 6. Decide whether to search products.
+	// 7. Decide whether to search products.
 	matchCount := req.MatchCount
 	if matchCount <= 0 {
 		matchCount = 5
 	}
 
 	var (
-		productMatches  []chat.ProductMatch
-		knowledgeItems  []chat.KnowledgeMatch
+		productMatches []chat.ProductMatch
+		knowledgeItems []chat.KnowledgeMatch
 	)
 
 	if shouldSearchProducts(req.Message) {
@@ -144,26 +168,51 @@ func (s *Service) HandleMessage(ctx context.Context, req chat.ChatRequest) (*cha
 		knowledgeItems, _ = s.repo.SearchKnowledge(ctx, embedding, 0.65, 3, req.TopicFilter)
 	}
 
-	// 7. Build prompt and generate response.
+	// 8. Build prompt and generate response.
 	answer, err := s.generateResponse(ctx, req.Message, history, productMatches, knowledgeItems)
 	if err != nil {
 		return nil, fmt.Errorf("chat: generate: %w", err)
 	}
 
-	// 8. Save user message and assistant response.
+	// 9. Save user message and assistant response.
 	meta := map[string]any{"products_found": len(productMatches)}
 	_ = s.repo.SaveMessage(ctx, req.SessionID, "user", req.Message, "user", "text", nil, "")
 	_ = s.repo.SaveMessage(ctx, req.SessionID, "assistant", answer, "assistant", "text", meta, "")
 
 	return &chat.ChatResponse{
-		Answer:   answer,
-		Products: productMatches,
+		Answer:       answer,
+		Products:     productMatches,
+		SessionToken: rawToken,
 	}, nil
 }
 
-// GetPublicHistory returns the chat history for public display.
-func (s *Service) GetPublicHistory(ctx context.Context, sessionID string) ([]chat.PublicMessage, error) {
-	return s.repo.GetPublicHistory(ctx, sessionID)
+// GetPublicHistory returns the chat history for the session identified by sessionID.
+// Access requires a valid session_token (anonymous sessions) or matching Supabase auth user.
+func (s *Service) GetPublicHistory(ctx context.Context, sessionID, token string, authUserID *string) ([]chat.PublicMessage, error) {
+	var tokenHash string
+	if token != "" {
+		tokenHash = hashToken(token)
+	}
+	msgs, err := s.repo.GetPublicHistory(ctx, sessionID, tokenHash, authUserID)
+	if errors.Is(err, chat.ErrSessionForbidden) {
+		return nil, chat.ErrSessionForbidden
+	}
+	return msgs, err
+}
+
+// ─── token helpers ────────────────────────────────────────────────────────────
+
+func generateToken() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		panic("chat: crypto/rand unavailable: " + err.Error())
+	}
+	return hex.EncodeToString(b)
+}
+
+func hashToken(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(h[:])
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

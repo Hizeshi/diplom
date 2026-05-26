@@ -1,6 +1,11 @@
 package chat
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+var ErrSessionForbidden = errors.New("chat: session access denied")
 
 // ─── Session ─────────────────────────────────────────────────────────────────
 
@@ -34,19 +39,22 @@ type PublicMessage struct {
 // ─── Request / Response ──────────────────────────────────────────────────────
 
 type ChatRequest struct {
-	Message     string
-	SessionID   string
-	AuthUserID  *string // Supabase UUID (site users)
-	UserID      string  // arbitrary string (telegram chat id, etc.)
-	MatchCount  int
-	TopicFilter string
-	Platform    string // "web" | "telegram" | "whatsapp"
+	Message      string
+	SessionID    string
+	SessionToken string  // anonymous ownership token; empty for internal/telegram callers
+	AuthUserID   *string // Supabase UUID (site users)
+	UserID       string  // arbitrary string (telegram chat id, etc.)
+	MatchCount   int
+	TopicFilter  string
+	Platform     string // "web" | "telegram" | "internal"
+	Trusted      bool   // true for /v1 internal and telegram routes
 }
 
 type ChatResponse struct {
-	Answer   string          `json:"answer"`
-	Products []ProductMatch  `json:"products,omitempty"`
-	QuoteURL string          `json:"quote_url,omitempty"`
+	Answer       string         `json:"answer"`
+	Products     []ProductMatch `json:"products,omitempty"`
+	QuoteURL     string         `json:"quote_url,omitempty"`
+	SessionToken string         `json:"session_token,omitempty"` // returned on new session creation
 }
 
 // ─── Search Results ──────────────────────────────────────────────────────────

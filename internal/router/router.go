@@ -132,11 +132,12 @@ func New(cfg *config.Config, log *slog.Logger, h Handlers) http.Handler {
 	})
 
 	// Telegram webhook — protected by X-Telegram-Bot-Api-Secret-Token only.
-	r.Post("/v1/telegram/webhook", h.Telegram.Webhook)
+	r.With(middleware.MarkTrusted).Post("/v1/telegram/webhook", h.Telegram.Webhook)
 
 	// Internal API (X-Internal-Token)
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(middleware.InternalToken(cfg.InternalToken))
+		r.Use(middleware.MarkTrusted)
 
 		r.Post("/chat", h.Chat.Chat)
 		r.Post("/chat/media", h.Chat.Media)

@@ -2,6 +2,7 @@ package chathandler
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 
@@ -13,7 +14,7 @@ import (
 
 type service interface {
 	HandleMessage(ctx context.Context, req chat.ChatRequest) (*chat.ChatResponse, error)
-	GetPublicHistory(ctx context.Context, sessionID string) ([]chat.PublicMessage, error)
+	GetPublicHistory(ctx context.Context, sessionID, token string, authUserID *string) ([]chat.PublicMessage, error)
 	ProcessMedia(ctx context.Context, req chat.MediaRequest) (*chat.ChatResponse, error)
 }
 
@@ -30,24 +31,27 @@ func New(svc service) *Handler {
 
 func (h *Handler) Chat(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Message     string `json:"message"      validate:"required,min=1,max=2000"`
-		SessionID   string `json:"session_id"   validate:"required,max=100"`
-		UserID      string `json:"user_id"`
-		MatchCount  int    `json:"match_count"`
-		TopicFilter string `json:"topic_filter"`
-		Platform    string `json:"platform"`
+		Message      string `json:"message"       validate:"required,min=1,max=2000"`
+		SessionID    string `json:"session_id"    validate:"required,min=1,max=100"`
+		SessionToken string `json:"session_token"`
+		UserID       string `json:"user_id"`
+		MatchCount   int    `json:"match_count"`
+		TopicFilter  string `json:"topic_filter"`
+		Platform     string `json:"platform"`
 	}
 	if !validate.DecodeAndValidate(w, r, &body) {
 		return
 	}
 
 	req := chat.ChatRequest{
-		Message:     body.Message,
-		SessionID:   body.SessionID,
-		UserID:      body.UserID,
-		MatchCount:  body.MatchCount,
-		TopicFilter: body.TopicFilter,
-		Platform:    body.Platform,
+		Message:      body.Message,
+		SessionID:    body.SessionID,
+		SessionToken: body.SessionToken,
+		UserID:       body.UserID,
+		MatchCount:   body.MatchCount,
+		TopicFilter:  body.TopicFilter,
+		Platform:     body.Platform,
+		Trusted:      middleware.IsTrusted(r.Context()),
 	}
 
 	// If request came through the Supabase-authenticated route, attach auth user.
@@ -60,6 +64,10 @@ func (h *Handler) Chat(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.svc.HandleMessage(r.Context(), req)
 	if err != nil {
+		if errors.Is(err, chat.ErrSessionForbidden) {
+			respond.Forbidden(w)
+			return
+		}
 		respond.InternalError(w)
 		return
 	}
@@ -67,16 +75,38 @@ func (h *Handler) Chat(w http.ResponseWriter, r *http.Request) {
 }
 
 // ─── GET /api/chat/history ───────────────────────────────────────────────────
+// Requires session_token query param (or Supabase JWT for authenticated users).
 
 func (h *Handler) History(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.URL.Query().Get("sessionId")
+	sessionID := r.URL.Query().Get("session_id")
 	if sessionID == "" {
-		respond.BadRequest(w, "sessionId is required")
+		// Backward-compat alias.
+		sessionID = r.URL.Query().Get("sessionId")
+	}
+	if sessionID == "" {
+		respond.BadRequest(w, "session_id is required")
 		return
 	}
 
-	msgs, err := h.svc.GetPublicHistory(r.Context(), sessionID)
+	token := r.URL.Query().Get("session_token")
+
+	// Optional Supabase auth: authenticated users can access their own sessions.
+	var authUserID *string
+	if u, ok := middleware.UserFromContext(r.Context()); ok {
+		authUserID = &u.ID
+	}
+
+	if token == "" && authUserID == nil {
+		respond.Unauthorized(w)
+		return
+	}
+
+	msgs, err := h.svc.GetPublicHistory(r.Context(), sessionID, token, authUserID)
 	if err != nil {
+		if errors.Is(err, chat.ErrSessionForbidden) {
+			respond.Forbidden(w)
+			return
+		}
 		respond.InternalError(w)
 		return
 	}
