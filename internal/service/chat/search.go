@@ -9,6 +9,7 @@ import (
 )
 
 // runSearch executes product search and knowledge search in parallel.
+// If embedding is empty the vector-based searches are skipped gracefully.
 func (s *Service) runSearch(
 	ctx context.Context,
 	query string,
@@ -16,6 +17,10 @@ func (s *Service) runSearch(
 	matchCount int,
 	topicFilter string,
 ) ([]chat.ProductMatch, []chat.KnowledgeMatch, error) {
+	if len(embedding) == 0 {
+		s.log.Warn("chat: skipping vector search — embedding is empty")
+		return nil, nil, nil
+	}
 	var (
 		products  []chat.ProductMatch
 		knowledge []chat.KnowledgeMatch

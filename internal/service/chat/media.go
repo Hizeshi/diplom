@@ -37,31 +37,26 @@ func (s *Service) ProcessMedia(ctx context.Context, req chat.MediaRequest) (*cha
 		filePath, _ = s.store.Upload(ctx, "chat-attachments", objectPath, req.Data, req.MimeType)
 	}
 
-	// Save user media message.
-	meta := map[string]any{
-		"message_type":    req.MessageType,
-		"original_text":   searchMessage,
-	}
-	_ = s.repo.SaveMessage(ctx, req.SessionID, "user", searchMessage, "user", req.MessageType, meta, filePath)
-
-	// Forward to main chat flow.
+	// Forward to main chat flow. HandleMessage is responsible for saving both
+	// the user message (with media metadata) and the assistant response.
+	// Do NOT call SaveMessage here — that would create duplicates.
 	chatReq := chat.ChatRequest{
-		Message:    searchMessage,
-		SessionID:  req.SessionID,
-		AuthUserID: req.AuthUserID,
-		UserID:     req.UserID,
-		Platform:   req.Platform,
-		MatchCount: 5,
+		Message:     searchMessage,
+		SessionID:   req.SessionID,
+		AuthUserID:  req.AuthUserID,
+		UserID:      req.UserID,
+		Platform:    req.Platform,
+		MatchCount:  5,
+		Trusted:     true, // media endpoint is always /v1 (internal)
+		MessageType: req.MessageType,
+		FilePath:    filePath,
+		MetaData: map[string]any{
+			"message_type":  req.MessageType,
+			"original_text": searchMessage,
+		},
 	}
 
-	resp, err := s.HandleMessage(ctx, chatReq)
-	if err != nil {
-		return nil, err
-	}
-
-	// Don't double-save user message — HandleMessage already saves it.
-	// Override: just return the response.
-	return resp, nil
+	return s.HandleMessage(ctx, chatReq)
 }
 
 // processVoice transcribes audio using Whisper.

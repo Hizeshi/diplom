@@ -175,9 +175,21 @@ func (s *Service) HandleMessage(ctx context.Context, req chat.ChatRequest) (*cha
 	}
 
 	// 9. Save user message and assistant response.
-	meta := map[string]any{"products_found": len(productMatches)}
-	_ = s.repo.SaveMessage(ctx, req.SessionID, "user", req.Message, "user", "text", nil, "")
-	_ = s.repo.SaveMessage(ctx, req.SessionID, "assistant", answer, "assistant", "text", meta, "")
+	msgType := req.MessageType
+	if msgType == "" {
+		msgType = "text"
+	}
+	userMeta := req.MetaData
+	if userMeta == nil {
+		userMeta = map[string]any{}
+	}
+	if err := s.repo.SaveMessage(ctx, req.SessionID, "user", req.Message, "user", msgType, userMeta, req.FilePath); err != nil {
+		s.log.Warn("chat: save user message failed", "session", req.SessionID, "err", err)
+	}
+	assistantMeta := map[string]any{"products_found": len(productMatches)}
+	if err := s.repo.SaveMessage(ctx, req.SessionID, "assistant", answer, "assistant", "text", assistantMeta, ""); err != nil {
+		s.log.Warn("chat: save assistant message failed", "session", req.SessionID, "err", err)
+	}
 
 	return &chat.ChatResponse{
 		Answer:       answer,

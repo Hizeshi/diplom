@@ -48,6 +48,11 @@ type ChatRequest struct {
 	TopicFilter  string
 	Platform     string // "web" | "telegram" | "internal"
 	Trusted      bool   // true for /v1 internal and telegram routes
+
+	// Media fields — set by ProcessMedia so HandleMessage saves the right type.
+	MessageType string         // "text" (default) | "voice" | "photo" | "document"
+	FilePath    string         // storage path of uploaded attachment
+	MetaData    map[string]any // extra metadata stored alongside the user message
 }
 
 type ChatResponse struct {
