@@ -1,6 +1,10 @@
 # Binary
 bin/
 
+# Internal docs / bug reports
+bags/
+docs/
+
 # Environment / secrets
 ecosystem.config.js
 .env
