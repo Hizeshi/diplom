@@ -3,6 +3,7 @@ bin/
 
 # Internal bug reports
 bags/
+docs/
 
 # Environment / secrets
 ecosystem.config.js
