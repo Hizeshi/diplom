@@ -134,8 +134,7 @@ func (s *Service) HandleMessage(ctx context.Context, req chat.ChatRequest) (*cha
 		knowledgeItems  []chat.KnowledgeMatch
 	)
 
-	needsSearch, _ := s.shouldSearchProducts(ctx, req.Message, history)
-	if needsSearch {
+	if shouldSearchProducts(req.Message) {
 		productMatches, knowledgeItems, err = s.runSearch(ctx, req.Message, embedding, matchCount, req.TopicFilter)
 		if err != nil {
 			s.log.Warn("chat: search failed", "err", err)

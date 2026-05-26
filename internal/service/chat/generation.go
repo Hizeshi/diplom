@@ -2,7 +2,6 @@ package chatsvc
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -27,34 +26,52 @@ type ContentPart struct {
 	ImageURL string
 }
 
-// shouldSearchProducts asks the LLM whether the user's message requires a product search.
-func (s *Service) shouldSearchProducts(ctx context.Context, message string, history []chat.Message) (bool, error) {
-	systemPrompt := `Ты определяешь, нужен ли поиск товаров для ответа на сообщение пользователя.
-Отвечай только JSON: {"search": true} или {"search": false}.
-Поиск нужен если пользователь спрашивает о конкретных товарах, характеристиках, ценах, наличии, сравнивает товары.
-Поиск НЕ нужен для приветствий, вопросов о доставке/оплате/гарантии, жалоб, общих вопросов.`
+// shouldSearchProducts decides locally — without an LLM call — whether the message
+// requires a product search. This saves one OpenAI round-trip per message.
+// The classifier uses keyword lists tuned for a flooring/home-finish store.
+func shouldSearchProducts(message string) bool {
+	msg := strings.ToLower(message)
 
-	msgs := []LLMMessage{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: message},
+	// Explicit non-product topics → skip search.
+	noSearchKeywords := []string{
+		"доставк", "оплат", "оплатить", "гарантия", "гарантийн", "возврат", "обмен",
+		"реквизит", "договор", "контакт", "адрес", "телефон", "график", "режим",
+		"спасибо", "благодарю", "отлично", "понял", "ок ", "окей",
 	}
-
-	resp, err := s.llm.Complete(ctx, CompleteOptions{
-		Model:    s.cfg.OpenAIModel,
-		Messages: msgs,
-		JSONMode: true,
-	})
-	if err != nil {
-		return true, err // default to search on error
+	for _, kw := range noSearchKeywords {
+		if strings.Contains(msg, kw) {
+			return false
+		}
 	}
 
-	var result struct {
-		Search bool `json:"search"`
+	// Product-related signals → run search.
+	searchKeywords := []string{
+		"ламинат", "паркет", "линолеум", "vinyl", "винил", "плинтус", "подложк",
+		"покрыти", "напольн", "укладк", "пол ", "полы", "полу", "полов",
+		"цена", "цены", "стоимост", "сколько стоит", "почём", "прайс",
+		"купить", "заказать", "приобрести", "хочу", "нужен", "нужна", "нужно",
+		"подобрать", "выбрать", "посоветуй", "порекоменд", "какой", "какая", "какие",
+		"наличи", "есть ли", "есть в наличии", "в наличии",
+		"характеристик", "размер", "толщин", "ширин", "класс", "износостойк",
+		"цвет", "оттенок", "декор", "текстур", "рисунок",
+		"бренд", "производитель", "коллекция", "серия",
+		"артикул", "модел",
+		"сравни", "отличи", "разниц", "лучше",
+		"акция", "скидк", "распродаж", "спецпредложени",
+		"комплект", "монтаж", "установк",
 	}
-	if err := json.Unmarshal([]byte(resp), &result); err != nil {
-		return true, nil
+	for _, kw := range searchKeywords {
+		if strings.Contains(msg, kw) {
+			return true
+		}
 	}
-	return result.Search, nil
+
+	// Short messages with a question mark are likely product queries.
+	if strings.Contains(msg, "?") && len([]rune(msg)) < 80 {
+		return true
+	}
+
+	return false
 }
 
 // generateResponse builds the full prompt and calls the LLM.
@@ -89,23 +106,38 @@ func (s *Service) generateResponse(
 func (s *Service) buildSystemPrompt(products []chat.ProductMatch, knowledge []chat.KnowledgeMatch) string {
 	var sb strings.Builder
 
-	sb.WriteString(`Ты — умный AI-ассистент интернет-магазина IQ Home, специализирующегося на напольных покрытиях, `)
-	sb.WriteString(`плинтусах и сопутствующих товарах. Помогай клиентам подбирать товары, отвечай на вопросы о характеристиках, `)
-	sb.WriteString(`ценах, наличии. Будь вежливым, профессиональным и конкретным. Отвечай на русском языке.`)
-	sb.WriteString("\n\n")
+	sb.WriteString(`Ты — Алина, опытный менеджер по продажам интернет-магазина IQ Home (Казахстан).` + "\n")
+	sb.WriteString(`Магазин специализируется на напольных покрытиях: ламинат, паркетная доска, LVT/SPC vinyl, линолеум, плинтусы и подложки.` + "\n\n")
+
+	sb.WriteString("## Твои задачи:\n")
+	sb.WriteString("- Помогать клиенту выбрать подходящее покрытие под его условия (тип помещения, нагрузка, бюджет, стиль).\n")
+	sb.WriteString("- Называть конкретные товары из списка ниже с ценами и ссылками.\n")
+	sb.WriteString("- Предлагать сопутствующие товары: к ламинату — подложку и плинтус; к паркету — масло/лак.\n")
+	sb.WriteString("- Отвечать на вопросы о характеристиках, классах износостойкости, монтаже, уходе.\n")
+	sb.WriteString("- Мягко подталкивать к покупке: уточнять площадь, сроки, предлагать оформить заказ.\n\n")
+
+	sb.WriteString("## Правила:\n")
+	sb.WriteString("- Отвечай только на русском языке, дружелюбно и профессионально.\n")
+	sb.WriteString("- Не выдумывай товары, цены и характеристики — используй только данные из списка ниже.\n")
+	sb.WriteString("- Если подходящего товара нет — честно скажи и предложи уточнить запрос или позвонить менеджеру.\n")
+	sb.WriteString("- Ответы делай краткими (3–5 предложений), без лишних вступлений.\n")
+	sb.WriteString("- Цены указывай в тенге (тг).\n\n")
 
 	if len(products) > 0 {
-		sb.WriteString("## Найденные товары:\n")
-		for _, p := range products {
-			sb.WriteString(fmt.Sprintf("- **%s** — %.0f тг", p.Name, p.Price))
+		sb.WriteString("## Доступные товары по запросу клиента:\n")
+		for i, p := range products {
+			sb.WriteString(fmt.Sprintf("%d. **%s** — %.0f тг", i+1, p.Name, p.Price))
 			if brand, ok := p.Metadata["brand"].(string); ok && brand != "" {
-				sb.WriteString(fmt.Sprintf(", бренд: %s", brand))
+				sb.WriteString(fmt.Sprintf(" | Бренд: %s", brand))
 			}
 			if color, ok := p.Metadata["color"].(string); ok && color != "" {
-				sb.WriteString(fmt.Sprintf(", цвет: %s", color))
+				sb.WriteString(fmt.Sprintf(" | Цвет: %s", color))
+			}
+			if series, ok := p.Metadata["series"].(string); ok && series != "" {
+				sb.WriteString(fmt.Sprintf(" | Серия: %s", series))
 			}
 			if s.cfg.ProductURL != "" {
-				sb.WriteString(fmt.Sprintf(" — [ссылка](%s%d)", s.cfg.ProductURL, p.ID))
+				sb.WriteString(fmt.Sprintf(" | [Открыть товар](%s%d)", s.cfg.ProductURL, p.ID))
 			}
 			sb.WriteString("\n")
 		}
@@ -113,14 +145,12 @@ func (s *Service) buildSystemPrompt(products []chat.ProductMatch, knowledge []ch
 	}
 
 	if len(knowledge) > 0 {
-		sb.WriteString("## Справочная информация:\n")
+		sb.WriteString("## Справочная информация о магазине:\n")
 		for _, k := range knowledge {
 			sb.WriteString(k.Content)
 			sb.WriteString("\n\n")
 		}
 	}
-
-	sb.WriteString("Если товар не найден — предложи уточнить запрос. Не выдумывай товары и цены.")
 
 	return sb.String()
 }
