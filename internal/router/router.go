@@ -46,6 +46,8 @@ type Handlers struct {
 func New(cfg *config.Config, log *slog.Logger, h Handlers) http.Handler {
 	r := chi.NewRouter()
 
+	r.Use(middleware.Recovery(log))
+	r.Use(middleware.RequestID)
 	r.Use(middleware.Logging(log))
 	r.Use(middleware.CORS(cfg.CORSAllowOrigin))
 

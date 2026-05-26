@@ -3,6 +3,7 @@ package middleware
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -29,7 +30,26 @@ func Logging(log *slog.Logger) func(http.Handler) http.Handler {
 				"path", r.URL.Path,
 				"status", rec.status,
 				"duration", time.Since(start).String(),
+				"ip", remoteIP(r),
+				"request_id", RequestIDFromContext(r.Context()),
 			)
 		})
 	}
+}
+
+// remoteIP extracts the client IP, preferring X-Forwarded-For (set by nginx).
+func remoteIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// X-Forwarded-For may be a comma-separated list; take the first.
+		if idx := strings.IndexByte(xff, ','); idx >= 0 {
+			return strings.TrimSpace(xff[:idx])
+		}
+		return strings.TrimSpace(xff)
+	}
+	// Strip port from RemoteAddr.
+	addr := r.RemoteAddr
+	if idx := strings.LastIndexByte(addr, ':'); idx >= 0 {
+		return addr[:idx]
+	}
+	return addr
 }
