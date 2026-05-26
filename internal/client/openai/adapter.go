@@ -3,7 +3,8 @@ package openai
 import (
 	"context"
 
-	chatsvc "iq-home/backend/internal/service/chat"
+	chatsvc         "iq-home/backend/internal/service/chat"
+	compatibilitysvc "iq-home/backend/internal/service/compatibility"
 )
 
 // ChatAdapter wraps Client to satisfy chatsvc.llm interface.
@@ -45,6 +46,29 @@ func (a *ChatAdapter) Complete(ctx context.Context, opts chatsvc.CompleteOptions
 
 func (a *ChatAdapter) Transcribe(ctx context.Context, model string, data []byte, filename string) (string, error) {
 	return a.c.Transcribe(ctx, model, data, filename)
+}
+
+// CompatibilityAdapter wraps Client to satisfy compatibilitysvc.llm interface.
+type CompatibilityAdapter struct {
+	c *Client
+}
+
+func NewCompatibilityAdapter(c *Client) *CompatibilityAdapter {
+	return &CompatibilityAdapter{c: c}
+}
+
+func (a *CompatibilityAdapter) Complete(ctx context.Context, opts compatibilitysvc.CompleteOptions) (string, error) {
+	msgs := make([]Message, len(opts.Messages))
+	for i, m := range opts.Messages {
+		if s, ok := m.Content.(string); ok {
+			msgs[i] = Message{Role: m.Role, Content: s}
+		}
+	}
+	return a.c.Complete(ctx, CompleteOptions{
+		Model:    opts.Model,
+		Messages: msgs,
+		JSONMode: opts.JSONMode,
+	})
 }
 
 // EmbedAdapter wraps Client to satisfy a simple Embed(ctx, text) interface.

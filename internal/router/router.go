@@ -7,9 +7,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/time/rate"
 
-	adminhandler        "iq-home/backend/internal/handler/admin"
-	chathandler         "iq-home/backend/internal/handler/chat"
-	contacthandler      "iq-home/backend/internal/handler/contact"
+	adminhandler         "iq-home/backend/internal/handler/admin"
+	chathandler          "iq-home/backend/internal/handler/chat"
+	compatibilityhandler "iq-home/backend/internal/handler/compatibility"
+	contacthandler       "iq-home/backend/internal/handler/contact"
 	describehandler     "iq-home/backend/internal/handler/describe"
 	"iq-home/backend/internal/handler/health"
 	paymenthandler      "iq-home/backend/internal/handler/payment"
@@ -38,6 +39,7 @@ type Handlers struct {
 	Telegram      *telegramhandler.Handler
 	Vectorize     *vectorizehandler.Handler
 	Describe      *describehandler.Handler
+	Compatibility *compatibilityhandler.Handler
 
 	// SupabaseAuth is the middleware applied to /api/user/* routes.
 	SupabaseAuth func(http.Handler) http.Handler
@@ -89,6 +91,8 @@ func New(cfg *config.Config, log *slog.Logger, h Handlers) http.Handler {
 
 			r.Get("/orders", h.User.GetOrders)
 			r.Get("/orders/{id}", h.User.GetOrderDetail)
+
+			r.Get("/cart/compatibility", h.Compatibility.Check)
 
 			r.Post("/checkout", h.User.Checkout)
 			r.Get("/session", h.User.GetSession)

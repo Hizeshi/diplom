@@ -9,9 +9,10 @@ import (
 	"iq-home/backend/internal/client/telegram"
 	"iq-home/backend/internal/client/tika"
 	"iq-home/backend/internal/config"
-	adminhandler       "iq-home/backend/internal/handler/admin"
-	chathandler        "iq-home/backend/internal/handler/chat"
-	contacthandler     "iq-home/backend/internal/handler/contact"
+	adminhandler          "iq-home/backend/internal/handler/admin"
+	chathandler           "iq-home/backend/internal/handler/chat"
+	compatibilityhandler  "iq-home/backend/internal/handler/compatibility"
+	contacthandler        "iq-home/backend/internal/handler/contact"
 	describehandler    "iq-home/backend/internal/handler/describe"
 	"iq-home/backend/internal/handler/health"
 	paymenthandler     "iq-home/backend/internal/handler/payment"
@@ -36,18 +37,19 @@ import (
 	vectorizerepo   "iq-home/backend/internal/repository/vectorize"
 	"iq-home/backend/internal/router"
 	"iq-home/backend/internal/server"
-	adminsvc       "iq-home/backend/internal/service/admin"
-	chatsvc        "iq-home/backend/internal/service/chat"
-	contactsvc     "iq-home/backend/internal/service/contact"
-	describesvc    "iq-home/backend/internal/service/describe"
-	paymentsvc     "iq-home/backend/internal/service/payment"
-	productimagesvc  "iq-home/backend/internal/service/productimage"
-	productsvc     "iq-home/backend/internal/service/product"
-	productimportsvc "iq-home/backend/internal/service/productimport"
-	quotesvc       "iq-home/backend/internal/service/quote"
-	telegramsvc    "iq-home/backend/internal/service/telegram"
-	usersvc        "iq-home/backend/internal/service/user"
-	vectorizesvc   "iq-home/backend/internal/service/vectorize"
+	adminsvc            "iq-home/backend/internal/service/admin"
+	chatsvc             "iq-home/backend/internal/service/chat"
+	compatibilitysvc    "iq-home/backend/internal/service/compatibility"
+	contactsvc          "iq-home/backend/internal/service/contact"
+	describesvc         "iq-home/backend/internal/service/describe"
+	paymentsvc          "iq-home/backend/internal/service/payment"
+	productimagesvc     "iq-home/backend/internal/service/productimage"
+	productsvc          "iq-home/backend/internal/service/product"
+	productimportsvc    "iq-home/backend/internal/service/productimport"
+	quotesvc            "iq-home/backend/internal/service/quote"
+	telegramsvc         "iq-home/backend/internal/service/telegram"
+	usersvc             "iq-home/backend/internal/service/user"
+	vectorizesvc        "iq-home/backend/internal/service/vectorize"
 	"iq-home/backend/pkg/logger"
 )
 
@@ -111,6 +113,9 @@ func New(cfg *config.Config) *App {
 	}
 	contactService := contactsvc.New(contactrepo.New(db), contactNotifier, cfg.ManagerChatID)
 
+	// ── Compatibility ─────────────────────────────────────────────────────────
+	compatibilityService := compatibilitysvc.New(userrepo.New(db), openai.NewCompatibilityAdapter(ai), cfg.OpenAIModel)
+
 	// ── Payment ──────────────────────────────────────────────────────────────
 	paymentService := paymentsvc.New(paymentrepo.New(db))
 
@@ -163,6 +168,7 @@ func New(cfg *config.Config) *App {
 		Vectorize:     vectorizehandler.New(vectorizeService, logr),
 		Describe:      describehandler.New(describeService, logr),
 		Telegram:      telegramHandler,
+		Compatibility: compatibilityhandler.New(compatibilityService),
 		SupabaseAuth:  sbAuth,
 	}
 
