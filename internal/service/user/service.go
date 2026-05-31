@@ -22,7 +22,7 @@ type repo interface {
 
 	GetOrders(ctx context.Context, userID string) ([]user.Order, error)
 	GetOrderDetail(ctx context.Context, userID string, orderID int64) (*user.OrderDetail, error)
-	Checkout(ctx context.Context, userID string, req user.CheckoutRequest) (int64, error)
+	Checkout(ctx context.Context, userID string, req user.CheckoutRequest) (int64, float64, error)
 
 	GetProfile(ctx context.Context, userID string) (*user.Profile, error)
 	GetSession(ctx context.Context, userID string) (*user.Session, error)
@@ -103,15 +103,16 @@ func (s *Service) GetOrderDetail(ctx context.Context, userID string, orderID int
 }
 
 func (s *Service) Checkout(ctx context.Context, userID string, req user.CheckoutRequest) (*user.CheckoutResult, error) {
-	orderID, err := s.repo.Checkout(ctx, userID, req)
+	orderID, total, err := s.repo.Checkout(ctx, userID, req)
 	if err != nil {
 		return nil, fmt.Errorf("user service: checkout: %w", err)
 	}
 
 	result := &user.CheckoutResult{Success: true, OrderID: orderID}
 
-	if req.PaymentMethod == "card" && s.paymentBaseURL != "" {
-		result.PaymentURL = fmt.Sprintf("%s?order_id=%d", s.paymentBaseURL, orderID)
+	needsPaymentURL := (req.PaymentMethod == "card" || req.PaymentMethod == "kaspi") && s.paymentBaseURL != ""
+	if needsPaymentURL {
+		result.PaymentURL = fmt.Sprintf("%s/?orderId=%d&amount=%d", s.paymentBaseURL, orderID, int64(total))
 	} else {
 		result.Message = "Заказ принят. Менеджер свяжется с вами."
 	}

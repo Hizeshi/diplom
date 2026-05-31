@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 
 	"iq-home/backend/internal/domain/payment"
@@ -49,10 +50,11 @@ func (h *Handler) Process(w http.ResponseWriter, r *http.Request) {
 		respond.BadRequest(w, "invalid body")
 		return
 	}
-	if p.OrderID == 0 {
+	if p.ResolvedOrderID() == 0 {
 		respond.BadRequest(w, "order_id is required")
 		return
 	}
+	p.OrderID = p.ResolvedOrderID()
 
 	if err := h.svc.ProcessWebhook(r.Context(), p); err != nil {
 		switch {
@@ -64,6 +66,45 @@ func (h *Handler) Process(w http.ResponseWriter, r *http.Request) {
 			// Idempotent: webhook was already processed successfully.
 			respond.OK(w, map[string]bool{"success": true})
 		default:
+			respond.InternalError(w)
+		}
+		return
+	}
+
+	respond.OK(w, map[string]bool{"success": true})
+}
+
+// POST /api/payment/notify
+// Called by l-xor-pay.vercel.app after payment attempt (no HMAC, rate-limited at router level).
+// Body: { "orderId": 123, "status": "success" | "failed" }
+func (h *Handler) Notify(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 64*1024))
+	if err != nil {
+		respond.BadRequest(w, "cannot read body")
+		return
+	}
+
+	var p payment.WebhookPayload
+	if err := json.Unmarshal(body, &p); err != nil {
+		respond.BadRequest(w, "invalid body")
+		return
+	}
+	p.OrderID = p.ResolvedOrderID()
+	if p.OrderID == 0 {
+		respond.BadRequest(w, "orderId is required")
+		return
+	}
+
+	if err := h.svc.ProcessWebhook(r.Context(), p); err != nil {
+		switch {
+		case errors.Is(err, payment.ErrUnknownStatus):
+			respond.BadRequest(w, "unknown payment status: "+p.Status)
+		case errors.Is(err, payment.ErrOrderNotFound):
+			respond.NotFound(w)
+		case errors.Is(err, payment.ErrAlreadyHandled):
+			respond.OK(w, map[string]bool{"success": true})
+		default:
+			slog.Error("payment notify error", "order_id", p.OrderID, "status", p.Status, "body", string(body), "err", err)
 			respond.InternalError(w)
 		}
 		return

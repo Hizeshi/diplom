@@ -11,16 +11,17 @@ import (
 	chathandler          "iq-home/backend/internal/handler/chat"
 	compatibilityhandler "iq-home/backend/internal/handler/compatibility"
 	contacthandler       "iq-home/backend/internal/handler/contact"
-	describehandler     "iq-home/backend/internal/handler/describe"
+	describehandler      "iq-home/backend/internal/handler/describe"
 	"iq-home/backend/internal/handler/health"
-	paymenthandler      "iq-home/backend/internal/handler/payment"
-	producthandler      "iq-home/backend/internal/handler/product"
+	paymenthandler       "iq-home/backend/internal/handler/payment"
+	producthandler       "iq-home/backend/internal/handler/product"
 	productimagehandler  "iq-home/backend/internal/handler/productimage"
 	productimporthandler "iq-home/backend/internal/handler/productimport"
-	quotehandler        "iq-home/backend/internal/handler/quote"
-	telegramhandler     "iq-home/backend/internal/handler/telegram"
-	userhandler         "iq-home/backend/internal/handler/user"
-	vectorizehandler    "iq-home/backend/internal/handler/vectorize"
+	quotehandler         "iq-home/backend/internal/handler/quote"
+	telegramhandler      "iq-home/backend/internal/handler/telegram"
+	translatehandler     "iq-home/backend/internal/handler/translate"
+	userhandler          "iq-home/backend/internal/handler/user"
+	vectorizehandler     "iq-home/backend/internal/handler/vectorize"
 	"iq-home/backend/internal/config"
 	"iq-home/backend/internal/middleware"
 )
@@ -40,6 +41,7 @@ type Handlers struct {
 	Vectorize     *vectorizehandler.Handler
 	Describe      *describehandler.Handler
 	Compatibility *compatibilityhandler.Handler
+	Translate     *translatehandler.Handler
 
 	// SupabaseAuth is the middleware applied to /api/user/* routes.
 	SupabaseAuth func(http.Handler) http.Handler
@@ -58,6 +60,8 @@ func New(cfg *config.Config, log *slog.Logger, h Handlers) http.Handler {
 
 	// Public API
 	r.Route("/api", func(r chi.Router) {
+		r.Use(middleware.Locale) // detect lang from ?lang= or Accept-Language
+
 		// Products (public)
 		r.Get("/filters", h.Product.Filters)
 		r.Get("/products/{id}", h.Product.GetByID)
@@ -66,12 +70,16 @@ func New(cfg *config.Config, log *slog.Logger, h Handlers) http.Handler {
 		// Contact — rate limited
 		r.With(middleware.RateLimit(rate.Limit(5), 10)).Post("/contact", h.Contact.Create)
 
-		// Chat — history is public, main endpoint is rate limited
-		r.Get("/chat/history", h.Chat.History)
-		r.With(middleware.RateLimit(rate.Limit(5), 10)).Post("/chat", h.Chat.Chat)
+		// Chat — requires auth
+		r.Group(func(r chi.Router) {
+			r.Use(h.SupabaseAuth)
+			r.Get("/chat/history", h.Chat.History)
+			r.With(middleware.RateLimit(rate.Limit(5), 10)).Post("/chat", h.Chat.Chat)
+		})
 
-		// Payment webhook
-		r.Post("/payment/webhook", h.Payment.Process)
+		// Payment webhooks
+		r.Post("/payment/webhook", h.Payment.Process)                                              // HMAC-signed (legacy provider)
+		r.With(middleware.RateLimit(rate.Limit(10), 20)).Post("/payment/notify", h.Payment.Notify) // l-xor-pay.vercel.app
 
 		// User (Supabase JWT required)
 		r.Route("/user", func(r chi.Router) {
@@ -79,6 +87,7 @@ func New(cfg *config.Config, log *slog.Logger, h Handlers) http.Handler {
 
 			r.Get("/cart", h.User.GetCart)
 			r.Post("/cart", h.User.AddToCart)
+			r.Put("/cart/{productId}", h.User.UpdateCartQuantity)
 			r.Delete("/cart/{productId}", h.User.RemoveFromCart)
 
 			r.Get("/favorites", h.User.GetFavorites)
@@ -117,6 +126,12 @@ func New(cfg *config.Config, log *slog.Logger, h Handlers) http.Handler {
 			r.Put("/products/{id}", h.Admin.UpdateProduct)
 			r.Put("/products/{id}/configurator", h.Admin.UpdateConfiguratorType)
 			r.Delete("/products/{id}", h.Admin.DeleteProduct)
+			r.Put("/products/{id}/i18n", h.Product.UpdateProductI18n)
+
+			// i18n for reference tables
+			r.Put("/series/{id}/i18n", h.Product.UpdateSeriesI18n)
+			r.Put("/brands/{id}/i18n", h.Product.UpdateBrandI18n)
+			r.Put("/colors/{id}/i18n", h.Product.UpdateColorI18n)
 
 			r.Get("/users", h.Admin.ListUsers)
 			r.Get("/users/{id}", h.Admin.GetUserDetail)
@@ -157,6 +172,9 @@ func New(cfg *config.Config, log *slog.Logger, h Handlers) http.Handler {
 		r.Post("/products/import", h.ProductImport.Import)
 
 		// Product images
+		// i18n bulk translation
+		r.Post("/products/translate", h.Translate.Translate)
+
 		r.Post("/products/images", h.ProductImage.BulkUpload)
 		r.Post("/products/images/item", h.ProductImage.ImageAdd)
 		r.Put("/products/images/item", h.ProductImage.ImageUpdate)

@@ -82,6 +82,31 @@ func (h *Handler) AddToCart(w http.ResponseWriter, r *http.Request) {
 	respond.OK(w, map[string]bool{"success": true})
 }
 
+// PUT /api/user/cart/{productId}
+func (h *Handler) UpdateCartQuantity(w http.ResponseWriter, r *http.Request) {
+	u := mustUser(w, r)
+	if u.ID == "" {
+		return
+	}
+	productID, err := pathInt64(r, "productId")
+	if err != nil {
+		respond.BadRequest(w, "invalid product id")
+		return
+	}
+	var body struct {
+		Quantity int `json:"quantity"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		respond.BadRequest(w, "invalid body")
+		return
+	}
+	if err := h.svc.AddToCart(r.Context(), u.ID, productID, body.Quantity); err != nil {
+		respond.BadRequest(w, err.Error())
+		return
+	}
+	respond.OK(w, map[string]bool{"success": true})
+}
+
 // DELETE /api/user/cart/{productId}
 func (h *Handler) RemoveFromCart(w http.ResponseWriter, r *http.Request) {
 	u := mustUser(w, r)
@@ -177,11 +202,15 @@ func (h *Handler) AddHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		ProductID int64 `json:"product_id"`
+		ProductID      int64 `json:"product_id"`
+		ProductIDCamel int64 `json:"productId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		respond.BadRequest(w, "invalid body")
 		return
+	}
+	if body.ProductID == 0 {
+		body.ProductID = body.ProductIDCamel
 	}
 	if err := h.svc.AddHistory(r.Context(), u.ID, body.ProductID); err != nil {
 		respond.InternalError(w)

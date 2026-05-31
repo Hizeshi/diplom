@@ -7,20 +7,22 @@ import (
 	"iq-home/backend/internal/domain/product"
 )
 
-// repo is the subset of productrepo.Repository the service needs.
 type repo interface {
-	GetByID(ctx context.Context, id int64) (*product.Product, error)
+	GetByID(ctx context.Context, id int64, locale string) (*product.Product, error)
 	Search(ctx context.Context, params product.SearchParams, embedding []float32) (*product.SearchResult, error)
-	GetFilters(ctx context.Context) (*product.Filters, error)
+	GetFilters(ctx context.Context, locale string) (*product.Filters, error)
+	UpdateProductI18n(ctx context.Context, id int64, locale, name, description, params string) error
+	UpdateSeriesI18n(ctx context.Context, id int64, locale, name string) error
+	UpdateBrandI18n(ctx context.Context, id int64, locale, name string) error
+	UpdateColorI18n(ctx context.Context, id int64, locale, name string) error
 }
 
-// embedder generates vector embeddings (satisfied by client/openai.EmbedAdapter).
 type embedder interface {
 	Embed(ctx context.Context, text string) ([]float32, error)
 }
 
 type Service struct {
-	repo    repo
+	repo     repo
 	embedder embedder
 }
 
@@ -28,30 +30,23 @@ func New(repo repo, embedder embedder) *Service {
 	return &Service{repo: repo, embedder: embedder}
 }
 
-// GetByID returns a single product with all its relations and images.
-// Returns nil, nil when the product does not exist.
-func (s *Service) GetByID(ctx context.Context, id int64) (*product.Product, error) {
-	p, err := s.repo.GetByID(ctx, id)
+func (s *Service) GetByID(ctx context.Context, id int64, locale string) (*product.Product, error) {
+	p, err := s.repo.GetByID(ctx, id, locale)
 	if err != nil {
 		return nil, fmt.Errorf("product service: get by id: %w", err)
 	}
 	return p, nil
 }
 
-// Search runs a semantic + full-text hybrid search.
-// When params.Query is empty it falls back to a filter-only query (no embedding).
 func (s *Service) Search(ctx context.Context, params product.SearchParams) (*product.SearchResult, error) {
 	var embedding []float32
-
 	if params.Query != "" {
 		var err error
 		embedding, err = s.embedder.Embed(ctx, params.Query)
 		if err != nil {
-			// Non-fatal: fall back to text-only search
 			embedding = nil
 		}
 	}
-
 	result, err := s.repo.Search(ctx, params, embedding)
 	if err != nil {
 		return nil, fmt.Errorf("product service: search: %w", err)
@@ -59,11 +54,26 @@ func (s *Service) Search(ctx context.Context, params product.SearchParams) (*pro
 	return result, nil
 }
 
-// GetFilters returns all available filter options and price range.
-func (s *Service) GetFilters(ctx context.Context) (*product.Filters, error) {
-	f, err := s.repo.GetFilters(ctx)
+func (s *Service) GetFilters(ctx context.Context, locale string) (*product.Filters, error) {
+	f, err := s.repo.GetFilters(ctx, locale)
 	if err != nil {
 		return nil, fmt.Errorf("product service: get filters: %w", err)
 	}
 	return f, nil
+}
+
+func (s *Service) UpdateProductI18n(ctx context.Context, id int64, upd product.I18nUpdate) error {
+	return s.repo.UpdateProductI18n(ctx, id, upd.Locale, upd.Name, upd.Description, upd.Params)
+}
+
+func (s *Service) UpdateSeriesI18n(ctx context.Context, id int64, upd product.I18nUpdate) error {
+	return s.repo.UpdateSeriesI18n(ctx, id, upd.Locale, upd.Name)
+}
+
+func (s *Service) UpdateBrandI18n(ctx context.Context, id int64, upd product.I18nUpdate) error {
+	return s.repo.UpdateBrandI18n(ctx, id, upd.Locale, upd.Name)
+}
+
+func (s *Service) UpdateColorI18n(ctx context.Context, id int64, upd product.I18nUpdate) error {
+	return s.repo.UpdateColorI18n(ctx, id, upd.Locale, upd.Name)
 }

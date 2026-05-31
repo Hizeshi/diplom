@@ -1,5 +1,56 @@
 package product
 
+import "encoding/json"
+
+// I18nMap holds translations keyed by locale ("kk", "en", "ru").
+// Example: {"kk": "Ажыратқыш", "en": "Switch"}
+type I18nMap map[string]string
+
+// Scan implements pgx Scanner for JSONB columns.
+func (m *I18nMap) Scan(src any) error {
+	if src == nil {
+		*m = I18nMap{}
+		return nil
+	}
+	var b []byte
+	switch v := src.(type) {
+	case []byte:
+		b = v
+	case string:
+		b = []byte(v)
+	}
+	if len(b) == 0 || string(b) == "{}" {
+		*m = I18nMap{}
+		return nil
+	}
+	return json.Unmarshal(b, m)
+}
+
+// Localize returns the best translation for the given locale.
+// Priority: requested locale → "ru" entry in i18n → raw fallback.
+func Localize(raw string, i18n I18nMap, locale string) string {
+	if i18n == nil {
+		return raw
+	}
+	if v, ok := i18n[locale]; ok && v != "" {
+		return v
+	}
+	if locale != LocaleRU {
+		if v, ok := i18n[LocaleRU]; ok && v != "" {
+			return v
+		}
+	}
+	return raw
+}
+
+const (
+	LocaleRU = "ru"
+	LocaleKK = "kk"
+	LocaleEN = "en"
+)
+
+// ─── Product ──────────────────────────────────────────────────────────────────
+
 // Product is the full product detail (used for GET /api/products/:id).
 type Product struct {
 	ID               int64
@@ -14,7 +65,7 @@ type Product struct {
 	Color            *Ref
 	Series           *Ref
 	Images           []Image
-	ModelURL         string // URL to .glb 3D model for AR preview (empty if not available)
+	ModelURL         string
 }
 
 // Ref is a generic {id, name} reference used for brand/color/series.
@@ -25,23 +76,26 @@ type Ref struct {
 
 // Image is a single product image.
 type Image struct {
-	ID   int64   `json:"id"`
-	URL  string  `json:"url"`
-	Path string  `json:"path"`
+	ID   int64  `json:"id"`
+	URL  string `json:"url"`
+	Path string `json:"path"`
 }
+
+// ─── Search ───────────────────────────────────────────────────────────────────
 
 // SearchParams holds all filters and pagination for product search.
 type SearchParams struct {
 	Query    string
 	Limit    int
-	Page     int     // 1-based
+	Page     int
 	MinPrice *float64
 	MaxPrice *float64
 	BrandID  *int64
 	ColorID  *int64
 	Type     *string
 	SeriesID *int64
-	SortBy   string // "relevance" | "price_asc" | "price_desc"
+	SortBy   string
+	Locale   string // "ru" | "kk" | "en"
 }
 
 // SearchResult is returned by the search endpoint.
@@ -65,18 +119,30 @@ type SearchItem struct {
 	Images           []Image `json:"images"`
 }
 
+// ─── Filters ──────────────────────────────────────────────────────────────────
+
 // Filters is returned by GET /api/filters.
 type Filters struct {
-	Types    []string  `json:"types"`
-	Brands   []Option  `json:"brands"`
-	Colors   []Option  `json:"colors"`
-	Series   []Option  `json:"series"`
-	MinPrice float64   `json:"min_price"`
-	MaxPrice float64   `json:"max_price"`
+	Types    []string `json:"types"`
+	Brands   []Option `json:"brands"`
+	Colors   []Option `json:"colors"`
+	Series   []Option `json:"series"`
+	MinPrice float64  `json:"min_price"`
+	MaxPrice float64  `json:"max_price"`
 }
 
 // Option is a {id, name} pair used in filter lists.
 type Option struct {
 	ID   int64  `json:"id"`
 	Name string `json:"name"`
+}
+
+// ─── I18n admin ───────────────────────────────────────────────────────────────
+
+// I18nUpdate is the body for PUT /api/admin/{resource}/{id}/i18n
+type I18nUpdate struct {
+	Locale      string `json:"locale"      validate:"required,oneof=ru kk en"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Params      string `json:"params"`
 }

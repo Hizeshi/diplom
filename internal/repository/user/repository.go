@@ -323,10 +323,10 @@ func (r *Repository) GetOrderDetail(ctx context.Context, userID string, orderID 
 }
 
 // Checkout creates an order from the user's cart inside a transaction.
-func (r *Repository) Checkout(ctx context.Context, userID string, req user.CheckoutRequest) (int64, error) {
+func (r *Repository) Checkout(ctx context.Context, userID string, req user.CheckoutRequest) (int64, float64, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("userrepo: checkout begin tx: %w", err)
+		return 0, 0, fmt.Errorf("userrepo: checkout begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
@@ -337,7 +337,7 @@ func (r *Repository) Checkout(ctx context.Context, userID string, req user.Check
 		JOIN products p ON p.id = ci.product_id AND p.deleted_at IS NULL
 		WHERE ci.user_id = $1`, userID)
 	if err != nil {
-		return 0, fmt.Errorf("userrepo: checkout get cart: %w", err)
+		return 0, 0, fmt.Errorf("userrepo: checkout get cart: %w", err)
 	}
 
 	type cartRow struct {
@@ -353,18 +353,18 @@ func (r *Repository) Checkout(ctx context.Context, userID string, req user.Check
 		var item cartRow
 		if err := rows.Scan(&item.productID, &item.name, &item.price, &item.qty); err != nil {
 			rows.Close()
-			return 0, fmt.Errorf("userrepo: checkout scan cart: %w", err)
+			return 0, 0, fmt.Errorf("userrepo: checkout scan cart: %w", err)
 		}
 		total += item.price * float64(item.qty)
 		cartItems = append(cartItems, item)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	if len(cartItems) == 0 {
-		return 0, fmt.Errorf("cart is empty")
+		return 0, 0, fmt.Errorf("cart is empty")
 	}
 
 	// 2. Create order.
@@ -376,7 +376,7 @@ func (r *Repository) Checkout(ctx context.Context, userID string, req user.Check
 		userID, total, req.PaymentMethod, req.Name, req.Phone, req.Address,
 	).Scan(&orderID)
 	if err != nil {
-		return 0, fmt.Errorf("userrepo: checkout create order: %w", err)
+		return 0, 0, fmt.Errorf("userrepo: checkout create order: %w", err)
 	}
 
 	// 3. Insert order items.
@@ -386,17 +386,17 @@ func (r *Repository) Checkout(ctx context.Context, userID string, req user.Check
 			VALUES ($1, $2, $3, $4, $5)`,
 			orderID, item.productID, item.name, item.price, item.qty)
 		if err != nil {
-			return 0, fmt.Errorf("userrepo: checkout insert item: %w", err)
+			return 0, 0, fmt.Errorf("userrepo: checkout insert item: %w", err)
 		}
 	}
 
 	// 4. Clear cart.
 	_, err = tx.Exec(ctx, `DELETE FROM cart_items WHERE user_id = $1`, userID)
 	if err != nil {
-		return 0, fmt.Errorf("userrepo: checkout clear cart: %w", err)
+		return 0, 0, fmt.Errorf("userrepo: checkout clear cart: %w", err)
 	}
 
-	return orderID, tx.Commit(ctx)
+	return orderID, total, tx.Commit(ctx)
 }
 
 // ─── Profile ─────────────────────────────────────────────────────────────────

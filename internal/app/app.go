@@ -15,6 +15,7 @@ import (
 	contacthandler        "iq-home/backend/internal/handler/contact"
 	describehandler    "iq-home/backend/internal/handler/describe"
 	"iq-home/backend/internal/handler/health"
+	translatehandler   "iq-home/backend/internal/handler/translate"
 	paymenthandler     "iq-home/backend/internal/handler/payment"
 	producthandler     "iq-home/backend/internal/handler/product"
 	productimagehandler  "iq-home/backend/internal/handler/productimage"
@@ -29,6 +30,7 @@ import (
 	chatrepo        "iq-home/backend/internal/repository/chat"
 	contactrepo     "iq-home/backend/internal/repository/contact"
 	describerepo    "iq-home/backend/internal/repository/describe"
+	translaterepo   "iq-home/backend/internal/repository/translate"
 	paymentrepo     "iq-home/backend/internal/repository/payment"
 	productimagerepo  "iq-home/backend/internal/repository/productimage"
 	productimportrepo "iq-home/backend/internal/repository/productimport"
@@ -42,6 +44,7 @@ import (
 	compatibilitysvc    "iq-home/backend/internal/service/compatibility"
 	contactsvc          "iq-home/backend/internal/service/contact"
 	describesvc         "iq-home/backend/internal/service/describe"
+	translatesvc        "iq-home/backend/internal/service/translate"
 	paymentsvc          "iq-home/backend/internal/service/payment"
 	productimagesvc     "iq-home/backend/internal/service/productimage"
 	productsvc          "iq-home/backend/internal/service/product"
@@ -134,6 +137,9 @@ func New(cfg *config.Config) *App {
 	// ── Describe ─────────────────────────────────────────────────────────────
 	describeService := describesvc.New(describerepo.New(db), ai, cfg.OpenAIModel, logr)
 
+	// ── Translate (i18n bulk) ─────────────────────────────────────────────────
+	translateService := translatesvc.New(translaterepo.New(db), ai, cfg.OpenAIModel)
+
 	// ── Telegram ─────────────────────────────────────────────────────────────
 	var telegramService *telegramsvc.Service
 	var telegramHandler *telegramhandler.Handler
@@ -169,6 +175,7 @@ func New(cfg *config.Config) *App {
 		Describe:      describehandler.New(describeService, logr),
 		Telegram:      telegramHandler,
 		Compatibility: compatibilityhandler.New(compatibilityService),
+		Translate:     translatehandler.New(translateService),
 		SupabaseAuth:  sbAuth,
 	}
 

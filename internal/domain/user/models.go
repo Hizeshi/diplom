@@ -70,8 +70,8 @@ type OrderItem struct {
 type CheckoutRequest struct {
 	Address       string `json:"address"       validate:"required,min=5,max=300"`
 	Phone         string `json:"phone"         validate:"required,min=7,max=20"`
-	Name          string `json:"name"          validate:"required,min=2,max=100"`
-	PaymentMethod string `json:"paymentMethod" validate:"required,oneof=card cash other"`
+	Name          string `json:"full_name"     validate:"required,min=2,max=100"`
+	PaymentMethod string `json:"paymentMethod" validate:"required,oneof=card cash kaspi other"`
 }
 
 type CheckoutResult struct {

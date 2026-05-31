@@ -44,6 +44,12 @@ func (r *Repository) UpdateOrderPaymentStatus(
 		}
 	}
 
+	// Store NULL instead of empty string to avoid unique constraint conflicts.
+	var txIDVal *string
+	if txID != "" {
+		txIDVal = &txID
+	}
+
 	tag, err := r.db.Exec(ctx,
 		`UPDATE orders
 		    SET payment_status = $1,
@@ -51,7 +57,7 @@ func (r *Repository) UpdateOrderPaymentStatus(
 		        payment_tx_id  = $3,
 		        updated_at     = NOW()
 		  WHERE id = $4`,
-		paymentStatus, orderStatus, txID, orderID,
+		paymentStatus, orderStatus, txIDVal, orderID,
 	)
 	if err != nil {
 		return err
