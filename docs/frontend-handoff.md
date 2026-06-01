@@ -1,40 +1,44 @@
-# Передача фронтенду — актуальное состояние бэкенда
+# Frontend Handoff — полная документация API
 
-**Дата:** 2026-05-31  
+**Дата:** 2026-06-01  
 **Бэкенд:** `https://chat.iq-home.kz`  
 **Supabase:** `https://supabase.iq-home.kz`
 
 ---
 
-## Срочно исправить на фронте
+## Что изменилось — срочные исправления
 
-Эти баги сейчас ломают функциональность:
-
-| # | Файл | Проблема | Исправление |
+| # | Что сломано | Файл | Исправление |
 |---|---|---|---|
-| 1 | `useCartStore` | `updateQuantity` шлёт дельту через `POST /cart` | Слать абсолютное значение через `PUT /cart/{id}` |
-| 2 | `useCartStore` | `removeItem` шлёт `DELETE /cart` с телом `{productId}` | Слать `DELETE /cart/{id}` без тела |
-| 3 | `orders/[id]/page.tsx` | `GET /order_details?id=X` — n8n формат | Заменить на `GET /orders/{id}` |
+| 1 | `updateQuantity` шлёт дельту через `POST /cart` | `useCartStore` | `PUT /cart/{id} { quantity: абсолютное }` |
+| 2 | `removeItem` шлёт `DELETE /cart` с телом | `useCartStore` | `DELETE /cart/{id}` без тела |
+| 3 | Детали заказа — n8n формат | `orders/[id]/page.tsx` | `GET /orders/{id}` |
+| 4 | `userApi.ts` не поддерживает `PUT` метод | `userApi.ts` | Добавить `PUT` в `UserApiMethod` |
 
-### Исправление 1 — изменение количества
+### Исправление 1 + 4 — изменение количества (PUT)
 
 ```ts
+// userApi.ts — добавить PUT:
+const BASE_URLS: Record<'GET' | 'POST' | 'PUT' | 'DELETE', string | undefined> = {
+  GET:    process.env.NEXT_PUBLIC_API_USER_GET,
+  POST:   process.env.NEXT_PUBLIC_API_USER_POST,
+  PUT:    process.env.NEXT_PUBLIC_API_USER_POST, // тот же базовый URL
+  DELETE: process.env.NEXT_PUBLIC_API_USER_DELETE,
+};
+
+// useCartStore — updateQuantity:
 // ❌ Было:
 await userApiRequest("/cart", "POST", { productId: id, quantity: delta });
-
-// ✅ Стало (нужно добавить PUT в userApi.ts):
+// ✅ Стало:
 const newQty = Math.max(1, currentItem.quantity + delta);
 await userApiRequest(`/cart/${id}`, "PUT", { quantity: newQty });
 ```
-
-> `userApi.ts` не поддерживает метод `PUT` — нужно добавить его в тип `UserApiMethod` и в `BASE_URLS`.
 
 ### Исправление 2 — удаление из корзины
 
 ```ts
 // ❌ Было:
 await userApiRequest("/cart", "DELETE", { productId: id });
-
 // ✅ Стало:
 await userApiRequest(`/cart/${id}`, "DELETE");
 ```
@@ -44,123 +48,180 @@ await userApiRequest(`/cart/${id}`, "DELETE");
 ```ts
 // ❌ Было:
 await userApiRequest(`/order_details?id=${params.id}`, "GET");
-
 // ✅ Стало:
 await userApiRequest(`/orders/${params.id}`, "GET");
 ```
 
 ---
 
-## Локализация (новое)
+## Локализация
 
-Все публичные эндпоинты каталога поддерживают параметр `?lang=`:
+Все эндпоинты каталога принимают `?lang=` или заголовок `Accept-Language`.
 
 ```
-GET /api/filters?lang=kk
-GET /api/products/42?lang=en
-POST /api/products/search?lang=kk
+GET  /api/filters?lang=kk
+POST /api/products/search?lang=en
+GET  /api/products/42?lang=kk
 ```
 
 Поддерживаемые значения: `ru` (по умолчанию), `kk`, `en`.
 
-Также принимается заголовок `Accept-Language: kk`.
-
-Ответ возвращает тот же формат JSON, но с переведёнными значениями полей `name`, `description`, `brand`, `color`, `series`.
-
-**Как передавать язык из фронта:** добавь `?lang=${currentLocale}` к запросам каталога.
+Ответ возвращает тот же JSON-формат, но с переведёнными строками.
 
 ---
 
-## Чат — теперь требует авторизацию
+## GET /api/filters
 
-`POST /api/chat` и `GET /api/chat/history` теперь закрыты за Supabase JWT.
+Справочники для фильтрации и конфигуратора. **Не требует авторизации.**
+
+```
+GET https://chat.iq-home.kz/api/filters?lang=ru
+```
+
+**Ответ:**
+```json
+{
+  "types": ["Выключатель", "Диммер", "Розетка", "Рамка", "Переключатель"],
+  "brands": [
+    { "id": 37, "name": "JASMART" }
+  ],
+  "colors": [
+    { "id": 32, "name": "Алюминий" },
+    { "id": 33, "name": "Антрацит" }
+  ],
+  "series": [
+    { "id": 197, "name": "FD-серия",  "brand_id": 37 },
+    { "id": 198, "name": "FS-серия",  "brand_id": 37 },
+    { "id": 199, "name": "G-Classic", "brand_id": 37 },
+    { "id": 200, "name": "G-Flex",    "brand_id": 37 },
+    { "id": 201, "name": "G-Glass",   "brand_id": 37 },
+    { "id": 202, "name": "G-Metal",   "brand_id": 37 }
+  ],
+  "min_price": 500,
+  "max_price": 85000
+}
+```
+
+> **Важно для конфигуратора:** `series[].brand_id` — добавлено. Используй для фильтрации серий по выбранному бренду в `TopSelectors`.
+
+---
+
+## POST /api/products/search
+
+Поиск товаров. **Не требует авторизации.**
+
+```
+POST https://chat.iq-home.kz/api/products/search?lang=ru
+Content-Type: application/json
+```
+
+**Тело запроса** (все поля опциональны):
+```json
+{
+  "search":   "выключатель одноклавишный",
+  "brandId":  37,
+  "colorId":  32,
+  "seriesId": 197,
+  "type":     "Выключатель",
+  "minPrice": 1000,
+  "maxPrice": 15000,
+  "sortBy":   "relevance",
+  "limit":    12,
+  "page":     1
+}
+```
+
+`sortBy`: `"relevance"` | `"price_asc"` | `"price_desc"`
+
+**Ответ:**
+```json
+{
+  "items": [
+    {
+      "id": 42,
+      "name": "Выключатель JASMART FD одноклавишный, белый матовый",
+      "article": "FD-SW-01-WM",
+      "price": 3500,
+      "score": 0.91,
+      "type": "Выключатель",
+      "configurator_type": "key_1",
+      "brand": "JASMART",
+      "color": "Белый матовый",
+      "series": "FD-серия",
+      "images": [
+        { "id": 1, "url": "https://supabase.iq-home.kz/storage/v1/object/public/...", "path": "42/img.jpg" }
+      ]
+    }
+  ],
+  "total": 128
+}
+```
+
+**Конфигуратор использует:**
+```ts
+// VisualBuilder.tsx делает этот запрос:
+getAllItems({ seriesId: selectedSeriesId, limit: 150 })
+// Что равно:
+POST /api/products/search { seriesId: X, limit: 150 }
+// Затем фильтрует по:
+item.configurator_type === 'frame_1'  // рамки
+item.configurator_type === 'key_1'    // клавиши
+```
+
+`configurator_type` возможные значения: `"frame_1"`, `"key_1"`, `"not_applicable"`, `""` (пусто).
+
+---
+
+## GET /api/products/{id}
+
+Карточка товара. **Не требует авторизации.**
+
+```
+GET https://chat.iq-home.kz/api/products/42?lang=kk
+```
+
+**Ответ:**
+```json
+{
+  "id": 42,
+  "name": "Выключатель JASMART FD одноклавишный, белый матовый",
+  "article": "FD-SW-01-WM",
+  "price": 3500,
+  "stock": 15,
+  "product_type": "Выключатель",
+  "description": "Одноклавишный выключатель серии FD...",
+  "configurator_type": "key_1",
+  "brand":  { "id": 37,  "name": "JASMART" },
+  "color":  { "id": 32,  "name": "Белый матовый" },
+  "series": { "id": 197, "name": "FD-серия" },
+  "images": [
+    { "id": 1, "url": "https://...", "path": "42/img.jpg" }
+  ],
+  "model_url": "https://..."
+}
+```
+
+`model_url` — ссылка на 3D-модель, может быть пустой строкой.
+
+---
+
+## Пользовательские эндпоинты (требует JWT)
 
 ```
 Authorization: Bearer <supabase_access_token>
 ```
 
-Неавторизованный запрос → `401 Unauthorized`.  
-На фронте: показывать кнопку «Войти» вместо чата для гостей.
-
----
-
-## Checkout — изменения
-
-### Поля запроса
-
-```json
-{
-  "full_name": "Иван Иванов",
-  "phone": "+77001234567",
-  "address": "г. Алматы, ул. Абая 1",
-  "paymentMethod": "card"
-}
-```
-
-> Поле называется `full_name` (не `name`).  
-> `paymentMethod`: `"card"` | `"cash"` | `"kaspi"` | `"other"`.
-
-### Ответ при оплате картой / Kaspi
-
-```json
-{
-  "success": true,
-  "orderId": 101,
-  "paymentUrl": "https://l-xor-pay.vercel.app/?orderId=101&amount=27357"
-}
-```
-
-> Ключи ответа — **camelCase**: `orderId`, `paymentUrl` (не `order_id`, не `payment_url`).
-
-### Ответ при наличных / other
-
-```json
-{
-  "success": true,
-  "orderId": 101,
-  "message": "Заказ принят. Менеджер свяжется с вами."
-}
-```
-
----
-
-## Платёжная система — вебхук
-
-Платёжный сайт `l-xor-pay.vercel.app` должен отправлять вебхук на:
-
-```
-POST https://chat.iq-home.kz/api/payment/notify
-```
-
-Тело:
-```json
-{ "orderId": 101, "status": "success" }
-```
-
-`status`: `"success"` или `"failed"`.
-
-Редиректы после оплаты (настроить в платёжном приложении):
-- Успех: `https://iq-home.kz/orders/{orderId}`
-- Отказ: `https://iq-home.kz/cart`
-
----
-
-## Полная таблица эндпоинтов пользователя
-
-Базовый URL: `https://chat.iq-home.kz/api/user`  
-Все запросы: `Authorization: Bearer <supabase_access_token>`
-
 ### Корзина
 
 | Метод | Путь | Тело | Ответ |
 |---|---|---|---|
-| GET | `/cart` | — | `{ data: [...] }` |
-| POST | `/cart` | `{ productId, quantity }` | `{ success: true }` |
-| PUT | `/cart/{productId}` | `{ quantity }` | `{ success: true }` |
-| DELETE | `/cart/{productId}` | — | `204` |
-| GET | `/cart/compatibility` | — | `{ compatible, issues[] }` |
+| GET | `/api/user/cart` | — | `{ data: CartItem[] }` |
+| POST | `/api/user/cart` | `{ productId, quantity }` | `{ success: true }` |
+| PUT | `/api/user/cart/{productId}` | `{ quantity }` | `{ success: true }` |
+| DELETE | `/api/user/cart/{productId}` | — | `204` |
+| GET | `/api/user/cart/compatibility` | — | `CompatibilityResult` |
 
-**Структура элемента корзины:**
+**CartItem:**
 ```json
 {
   "id": 1,
@@ -172,7 +233,14 @@ POST https://chat.iq-home.kz/api/payment/notify
 }
 ```
 
-**Структура ответа совместимости:**
+**PUT quantity** — абсолютное значение, не дельта:
+```ts
+// При нажатии «+»:
+const newQty = currentItem.quantity + 1;
+await userApiRequest(`/cart/${productId}`, "PUT", { quantity: newQty });
+```
+
+**CompatibilityResult:**
 ```json
 {
   "compatible": false,
@@ -191,9 +259,10 @@ POST https://chat.iq-home.kz/api/payment/notify
   ]
 }
 ```
-- `incompatible` → блокировать кнопку «Оформить заказ»
-- `warning` → показывать предупреждение, не блокировать
-- При ошибке 500 → показывать корзину без проверки совместимости
+
+- `type: "incompatible"` → блокировать кнопку «Оформить заказ»
+- `type: "warning"` → показывать предупреждение, не блокировать
+- При ошибке 500 → игнорировать, показывать корзину как обычно
 
 ---
 
@@ -201,9 +270,14 @@ POST https://chat.iq-home.kz/api/payment/notify
 
 | Метод | Путь | Тело | Ответ |
 |---|---|---|---|
-| GET | `/favorites` | — | `{ data: [...] }` |
-| POST | `/favorites` | `{ productId }` | `{ success: true }` — toggle |
-| DELETE | `/favorites/{productId}` | — | `204` |
+| GET | `/api/user/favorites` | — | `{ data: FavoriteItem[] }` |
+| POST | `/api/user/favorites` | `{ productId }` | `{ success: true }` — toggle |
+| DELETE | `/api/user/favorites/{productId}` | — | `204` |
+
+**FavoriteItem:**
+```json
+{ "product_id": 42, "name": "Выключатель FD", "price": 3500, "image_url": "..." }
+```
 
 ---
 
@@ -211,9 +285,14 @@ POST https://chat.iq-home.kz/api/payment/notify
 
 | Метод | Путь | Тело | Ответ |
 |---|---|---|---|
-| GET | `/history` | — | `{ data: [...] }` |
-| POST | `/history` | `{ productId }` или `{ product_id }` | `{ success: true }` |
-| GET | `/recommendations` | — | `{ data: [...] }` |
+| GET | `/api/user/history` | — | `{ data: HistoryItem[] }` |
+| POST | `/api/user/history` | `{ productId }` или `{ product_id }` | `{ success: true }` |
+| GET | `/api/user/recommendations` | — | `{ data: RecommendedItem[] }` |
+
+**HistoryItem:**
+```json
+{ "product_id": 42, "name": "...", "price": 3500, "image_url": "...", "viewed_at": "2026-05-27T12:00:00Z" }
+```
 
 ---
 
@@ -221,10 +300,10 @@ POST https://chat.iq-home.kz/api/payment/notify
 
 | Метод | Путь | Ответ |
 |---|---|---|
-| GET | `/orders` | `{ data: [...] }` |
-| GET | `/orders/{id}` | объект заказа с items[] |
+| GET | `/api/user/orders` | `{ data: Order[] }` |
+| GET | `/api/user/orders/{id}` | `OrderDetail` |
 
-**Структура элемента в списке заказов:**
+**Order:**
 ```json
 {
   "id": 7,
@@ -239,30 +318,58 @@ POST https://chat.iq-home.kz/api/payment/notify
 }
 ```
 
-**Структура детального заказа:**
+**OrderDetail** — то же + `items[]`:
 ```json
 {
-  "id": 7,
-  "status": "confirmed",
-  "payment_status": "paid",
-  "total_amount": 15000,
-  "full_name": "Иван Иванов",
-  "phone": "+77011234567",
-  "address": "Алматы, ул. Абая 1",
-  "created_at": "2026-05-27T12:00:00Z",
   "items": [
-    {
-      "product_id": 42,
-      "product_name": "Выключатель FD",
-      "price_at_purchase": 3500,
-      "quantity": 2
-    }
+    { "product_id": 42, "product_name": "Выключатель FD", "price_at_purchase": 3500, "quantity": 2 }
   ]
 }
 ```
 
-**Статусы заказа:** `new` | `confirmed` | `processing` | `cancelled`  
-**Статусы оплаты:** `pending` | `success` | `failed`
+Статусы заказа: `new` | `confirmed` | `processing` | `cancelled`  
+Статусы оплаты: `pending` | `success` | `failed`
+
+---
+
+### Checkout
+
+```
+POST /api/user/checkout
+```
+
+**Тело:**
+```json
+{
+  "full_name":     "Иван Иванов",
+  "phone":         "+77011234567",
+  "address":       "г. Алматы, ул. Абая 1",
+  "paymentMethod": "card"
+}
+```
+
+`paymentMethod`: `"card"` | `"kaspi"` | `"cash"` | `"other"`
+
+**Ответ при card / kaspi:**
+```json
+{
+  "success":    true,
+  "orderId":    101,
+  "paymentUrl": "https://l-xor-pay.vercel.app/?orderId=101&amount=27357"
+}
+```
+
+**Ответ при cash / other:**
+```json
+{
+  "success": true,
+  "orderId": 101,
+  "message": "Заказ принят. Менеджер свяжется с вами."
+}
+```
+
+> Ключи в ответе — **camelCase**: `orderId`, `paymentUrl`.  
+> После успешного checkout корзина очищается автоматически.
 
 ---
 
@@ -270,11 +377,11 @@ POST https://chat.iq-home.kz/api/payment/notify
 
 | Метод | Путь | Тело | Ответ |
 |---|---|---|---|
-| GET | `/session` | — | профиль пользователя |
-| POST | `/avatar` | `{ avatar_url, avatar_path }` | `{ success: true }` |
-| DELETE | `/avatar` | — | `204` |
+| GET | `/api/user/session` | — | `Profile` |
+| POST | `/api/user/avatar` | `{ avatar_url, avatar_path }` | `{ success: true }` |
+| DELETE | `/api/user/avatar` | — | `204` |
 
-**Профиль:**
+**Profile:**
 ```json
 {
   "id": "uuid",
@@ -288,68 +395,54 @@ POST https://chat.iq-home.kz/api/payment/notify
 
 ---
 
-## Публичные эндпоинты каталога
+## Чат
+
+Требует авторизации (Supabase JWT). Для гостей показывать кнопку «Войти».
 
 | Метод | Путь | Описание |
 |---|---|---|
-| GET | `/api/filters` | Справочники фильтров |
-| POST | `/api/products/search` | Поиск и пагинация |
-| GET | `/api/products/{id}` | Карточка товара |
+| POST | `/api/chat` | Отправить сообщение ИИ |
+| GET | `/api/chat/history?sessionId={id}` | История чата |
 
-Все поддерживают `?lang=ru|kk|en`.
-
-**Тело поиска:**
+**Тело POST /api/chat:**
 ```json
 {
-  "search": "выключатель",
-  "brandId": null,
-  "colorId": null,
-  "seriesId": null,
-  "type": null,
-  "minPrice": null,
-  "maxPrice": null,
-  "sortBy": "relevance",
-  "limit": 12,
-  "page": 1
+  "message":    "Посоветуй выключатель для спальни",
+  "session_id": "любая-строка-uuid"
 }
 ```
 
-**Ответ поиска:**
+**Ответ:**
 ```json
 {
-  "items": [
-    {
-      "id": 42,
-      "name": "Выключатель JASMART FD",
-      "article": "FD-001",
-      "price": 3500,
-      "type": "Выключатель",
-      "configurator_type": "",
-      "brand": "JASMART",
-      "color": "Белый матовый",
-      "series": "FD",
-      "images": [{ "id": 1, "url": "https://...", "path": "42/img.jpg" }]
-    }
-  ],
-  "total": 128
-}
-```
-
-**Ответ фильтров:**
-```json
-{
-  "types": ["Выключатель", "Розетка", "Рамка"],
-  "brands": [{ "id": 37, "name": "JASMART" }],
-  "colors": [{ "id": 1, "name": "Белый матовый" }],
-  "series": [{ "id": 2, "name": "FD" }],
-  "min_price": 500,
-  "max_price": 85000
+  "answer": "Рекомендую выключатель JASMART FD...",
+  "products": [
+    { "id": 42, "name": "...", "price": 3500, "url": "https://iq-home.kz/products/42" }
+  ]
 }
 ```
 
 ---
 
+## Платёжная система
+
+Вебхук от `l-xor-pay.vercel.app`:
+```
+POST https://chat.iq-home.kz/api/payment/notify
+{ "orderId": 101, "status": "success" }
+```
+
+Редиректы после оплаты (настроить в платёжном приложении):
+- Успех → `https://iq-home.kz/orders/{orderId}`
+- Отказ → `https://iq-home.kz/cart`
+
+---
+
 ## Коды ошибок
+
+```json
+{ "error": "описание" }
+```
 
 | Код | Причина |
 |---|---|
@@ -357,20 +450,39 @@ POST https://chat.iq-home.kz/api/payment/notify
 | `401` | Нет JWT или невалидный |
 | `403` | Нет доступа к ресурсу |
 | `404` | Ресурс не найден |
-| `500` | Ошибка сервера — показывать пользователю нейтральное сообщение |
-
-Формат ошибки:
-```json
-{ "error": "описание ошибки" }
-```
+| `500` | Ошибка сервера |
 
 ---
 
-## CORS
+## CORS — разрешённые origins
 
-Разрешённые origins:
 - `https://iq-home.kz`
 - `https://www.iq-home.kz`
 - `https://l-xor-pay.vercel.app`
 
-Если фронт работает с другого домена — сообщить, добавим.
+---
+
+## Переводы справочников — что нужно от тебя
+
+Бренды, цвета и серии ещё не переведены. В репозитории лежит файл  
+`docs/refs_to_translate.json` — 1 бренд, 25 цветов, 7 серий.
+
+Формат для перевода и загрузки:
+```json
+{
+  "brands": {
+    "kk": [{ "id": 37, "name": "JASMART" }],
+    "en": [{ "id": 37, "name": "JASMART" }]
+  },
+  "colors": {
+    "kk": [{ "id": 32, "name": "Ақ матовый" }, ...],
+    "en": [{ "id": 32, "name": "White matte" }, ...]
+  },
+  "series": {
+    "kk": [{ "id": 197, "name": "FD-сериясы" }, ...],
+    "en": [{ "id": 197, "name": "FD Series" }, ...]
+  }
+}
+```
+
+Загрузить: `python3 docs/upload_refs_translations.py refs_translated.json`

@@ -123,18 +123,25 @@ type SearchItem struct {
 
 // Filters is returned by GET /api/filters.
 type Filters struct {
-	Types    []string `json:"types"`
-	Brands   []Option `json:"brands"`
-	Colors   []Option `json:"colors"`
-	Series   []Option `json:"series"`
-	MinPrice float64  `json:"min_price"`
-	MaxPrice float64  `json:"max_price"`
+	Types    []string       `json:"types"`
+	Brands   []Option       `json:"brands"`
+	Colors   []Option       `json:"colors"`
+	Series   []SeriesOption `json:"series"`
+	MinPrice float64        `json:"min_price"`
+	MaxPrice float64        `json:"max_price"`
 }
 
 // Option is a {id, name} pair used in filter lists.
 type Option struct {
 	ID   int64  `json:"id"`
 	Name string `json:"name"`
+}
+
+// SeriesOption extends Option with brand_id for the configurator.
+type SeriesOption struct {
+	ID      int64  `json:"id"`
+	Name    string `json:"name"`
+	BrandID *int64 `json:"brand_id"`
 }
 
 // ─── I18n admin ───────────────────────────────────────────────────────────────

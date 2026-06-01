@@ -286,8 +286,7 @@ func (r *Repository) GetFilters(ctx context.Context, locale string) (*product.Fi
 		return nil, fmt.Errorf("productrepo: filters colors: %w", err)
 	}
 
-	f.Series, err = r.fetchOptionsI18n(ctx,
-		`SELECT id, name, name_i18n FROM product_series ORDER BY name`, locale)
+	f.Series, err = r.fetchSeriesOptions(ctx, locale)
 	if err != nil {
 		return nil, fmt.Errorf("productrepo: filters series: %w", err)
 	}
@@ -317,6 +316,29 @@ func (r *Repository) fetchOptionsI18n(ctx context.Context, q, locale string) ([]
 			i18n product.I18nMap
 		)
 		if err := rows.Scan(&o.ID, &o.Name, &i18n); err != nil {
+			return nil, err
+		}
+		o.Name = product.Localize(o.Name, i18n, locale)
+		opts = append(opts, o)
+	}
+	return opts, rows.Err()
+}
+
+func (r *Repository) fetchSeriesOptions(ctx context.Context, locale string) ([]product.SeriesOption, error) {
+	rows, err := r.db.Query(ctx,
+		`SELECT id, name, name_i18n, brand_id FROM product_series ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var opts []product.SeriesOption
+	for rows.Next() {
+		var (
+			o    product.SeriesOption
+			i18n product.I18nMap
+		)
+		if err := rows.Scan(&o.ID, &o.Name, &i18n, &o.BrandID); err != nil {
 			return nil, err
 		}
 		o.Name = product.Localize(o.Name, i18n, locale)
