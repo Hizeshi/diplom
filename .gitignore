@@ -4,10 +4,7 @@ bin/
 # Internal bug reports
 bags/
 
-# Docs — исключаем только тяжёлые/чувствительные файлы
-docs/products_to_translate.json
-docs/translated.json
-docs/пояснительная_записка.docx
+docs/
 
 # Environment / secrets
 ecosystem.config.js
