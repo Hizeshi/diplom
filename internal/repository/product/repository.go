@@ -256,7 +256,6 @@ func (r *Repository) GetFilters(ctx context.Context, locale string) (*product.Fi
 	f := &product.Filters{}
 	var err error
 
-	// Types (no i18n for product_type yet — it's a free-text field)
 	rows, err := r.db.Query(ctx, `
 		SELECT DISTINCT product_type FROM products
 		WHERE deleted_at IS NULL AND is_active = true AND product_type IS NOT NULL
@@ -270,7 +269,7 @@ func (r *Repository) GetFilters(ctx context.Context, locale string) (*product.Fi
 			rows.Close()
 			return nil, err
 		}
-		f.Types = append(f.Types, t)
+		f.Types = append(f.Types, localizeType(t, locale))
 	}
 	rows.Close()
 
@@ -395,6 +394,30 @@ func (r *Repository) UpdateColorI18n(ctx context.Context, id int64, locale, name
 func jsonStr(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
+}
+
+var typeTranslations = map[string]map[string]string{
+	"Выключатели":             {"kk": "Ажыратқыштар",          "en": "Switches"},
+	"Диммеры, Светорегулятор": {"kk": "Диммерлер, жарық реттегіш", "en": "Dimmers"},
+	"Заглушки / Вывод кабеля": {"kk": "Тығындар / Кабель шығысы",  "en": "Blanks / Cable outlet"},
+	"Рамки":                   {"kk": "Жақтаулар",             "en": "Frames"},
+	"Розетка":                 {"kk": "Розетка",               "en": "Socket"},
+	"Розетки компьютерные":    {"kk": "Компьютерлік розеткалар", "en": "Computer sockets"},
+	"Розетки телевизионные":   {"kk": "Теледидар розеткалары", "en": "TV sockets"},
+	"Розетки телефонные":      {"kk": "Телефон розеткалары",   "en": "Phone sockets"},
+	"Розетки электрические":   {"kk": "Электр розеткалары",    "en": "Electrical sockets"},
+}
+
+func localizeType(t, locale string) string {
+	if locale == "ru" || locale == "" {
+		return t
+	}
+	if m, ok := typeTranslations[t]; ok {
+		if v, ok := m[locale]; ok && v != "" {
+			return v
+		}
+	}
+	return t
 }
 
 func formatVector(v []float32) string {
