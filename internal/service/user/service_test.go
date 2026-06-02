@@ -32,13 +32,15 @@ func (m *mockRepo) RemoveCartItem(_ context.Context, _ string, _ int64) error { 
 func (m *mockRepo) GetFavorites(_ context.Context, _ string) ([]user.FavoriteItem, error) {
 	return nil, m.err
 }
-func (m *mockRepo) ToggleFavorite(_ context.Context, _ string, _ int64) error  { return m.err }
-func (m *mockRepo) RemoveFavorite(_ context.Context, _ string, _ int64) error   { return m.err }
+func (m *mockRepo) ToggleFavorite(_ context.Context, _ string, _ int64) (string, error) {
+	return "added", m.err
+}
+func (m *mockRepo) RemoveFavorite(_ context.Context, _ string, _ int64) error { return m.err }
 func (m *mockRepo) GetHistory(_ context.Context, _ string) ([]user.HistoryItem, error) {
 	return nil, m.err
 }
 func (m *mockRepo) AddHistory(_ context.Context, _ string, _ int64) error { return m.err }
-func (m *mockRepo) GetRecommendations(_ context.Context, _ string) ([]user.RecommendedItem, error) {
+func (m *mockRepo) GetRecommendations(_ context.Context, _, _ string) ([]user.RecommendedItem, error) {
 	return nil, m.err
 }
 func (m *mockRepo) GetOrders(_ context.Context, _ string) ([]user.Order, error) {
@@ -47,8 +49,8 @@ func (m *mockRepo) GetOrders(_ context.Context, _ string) ([]user.Order, error) 
 func (m *mockRepo) GetOrderDetail(_ context.Context, _ string, _ int64) (*user.OrderDetail, error) {
 	return nil, m.err
 }
-func (m *mockRepo) Checkout(_ context.Context, _ string, _ user.CheckoutRequest) (int64, error) {
-	return m.orderID, m.err
+func (m *mockRepo) Checkout(_ context.Context, _ string, _ user.CheckoutRequest) (int64, float64, error) {
+	return m.orderID, 0, m.err
 }
 func (m *mockRepo) GetProfile(_ context.Context, _ string) (*user.Profile, error) {
 	return &user.Profile{}, m.err
@@ -136,8 +138,8 @@ func TestCheckout_CardWithPaymentURL(t *testing.T) {
 	if result.OrderID != 7 {
 		t.Errorf("expected orderID=7, got %d", result.OrderID)
 	}
-	if !strings.Contains(result.PaymentURL, "order_id=7") {
-		t.Errorf("expected payment URL with order_id, got: %s", result.PaymentURL)
+	if !strings.Contains(result.PaymentURL, "orderId=7") {
+		t.Errorf("expected payment URL with orderId, got: %s", result.PaymentURL)
 	}
 }
 

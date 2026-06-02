@@ -20,7 +20,7 @@ type mockRepo struct {
 	lastSearchEmbedding []float32
 }
 
-func (m *mockRepo) GetByID(_ context.Context, _ int64) (*product.Product, error) {
+func (m *mockRepo) GetByID(_ context.Context, _ int64, _ string) (*product.Product, error) {
 	return m.product, m.err
 }
 
@@ -29,9 +29,17 @@ func (m *mockRepo) Search(_ context.Context, _ product.SearchParams, emb []float
 	return m.result, m.err
 }
 
-func (m *mockRepo) GetFilters(_ context.Context) (*product.Filters, error) {
+func (m *mockRepo) GetFilters(_ context.Context, _ string) (*product.Filters, error) {
 	return m.filters, m.err
 }
+
+func (m *mockRepo) UpdateProductI18n(_ context.Context, _ int64, _, _, _, _ string) error {
+	return m.err
+}
+
+func (m *mockRepo) UpdateSeriesI18n(_ context.Context, _ int64, _, _ string) error { return m.err }
+func (m *mockRepo) UpdateBrandI18n(_ context.Context, _ int64, _, _ string) error  { return m.err }
+func (m *mockRepo) UpdateColorI18n(_ context.Context, _ int64, _, _ string) error  { return m.err }
 
 type mockEmbedder struct {
 	vec []float32
@@ -48,7 +56,7 @@ func TestGetByID_ReturnsProduct(t *testing.T) {
 	want := &product.Product{ID: 42, Name: "Умная лампа"}
 	svc := productsvc.New(&mockRepo{product: want}, &mockEmbedder{})
 
-	got, err := svc.GetByID(context.Background(), 42)
+	got, err := svc.GetByID(context.Background(), 42, "ru")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -60,7 +68,7 @@ func TestGetByID_ReturnsProduct(t *testing.T) {
 func TestGetByID_NotFound(t *testing.T) {
 	svc := productsvc.New(&mockRepo{product: nil}, &mockEmbedder{})
 
-	got, err := svc.GetByID(context.Background(), 999)
+	got, err := svc.GetByID(context.Background(), 999, "ru")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -72,7 +80,7 @@ func TestGetByID_NotFound(t *testing.T) {
 func TestGetByID_RepoError(t *testing.T) {
 	svc := productsvc.New(&mockRepo{err: errors.New("db down")}, &mockEmbedder{})
 
-	_, err := svc.GetByID(context.Background(), 1)
+	_, err := svc.GetByID(context.Background(), 1, "ru")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -138,7 +146,7 @@ func TestGetFilters_ReturnsFilters(t *testing.T) {
 	want := &product.Filters{MinPrice: 1000, MaxPrice: 99000}
 	svc := productsvc.New(&mockRepo{filters: want}, &mockEmbedder{})
 
-	got, err := svc.GetFilters(context.Background())
+	got, err := svc.GetFilters(context.Background(), "ru")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
