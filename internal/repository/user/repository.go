@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"iq-home/backend/internal/domain/compatibility"
+	"iq-home/backend/internal/domain/product"
 	"iq-home/backend/internal/domain/user"
 )
 
@@ -231,7 +232,8 @@ func (r *Repository) AddHistory(ctx context.Context, userID string, productID in
 	return err
 }
 
-func (r *Repository) GetRecommendations(ctx context.Context, userID string) ([]user.RecommendedItem, error) {
+func (r *Repository) GetRecommendations(ctx context.Context, userID, locale string) ([]user.RecommendedItem, error) {
+	// 1. Semantic recommendations based on the last viewed product.
 	const q = `
 		WITH last_viewed AS (
 			SELECT product_id FROM product_views
@@ -239,7 +241,7 @@ func (r *Repository) GetRecommendations(ctx context.Context, userID string) ([]u
 			ORDER BY viewed_at DESC
 			LIMIT 1
 		)
-		SELECT p.id, p.name_raw, COALESCE(p.price, 0), COALESCE(pi.image_url, '')
+		SELECT p.id, p.name_raw, p.name_i18n, COALESCE(p.price, 0), COALESCE(pi.image_url, '')
 		FROM product_vectors ref_vec
 		JOIN product_vectors sim_vec
 		  ON sim_vec.combined_embedding IS NOT NULL
@@ -253,7 +255,35 @@ func (r *Repository) GetRecommendations(ctx context.Context, userID string) ([]u
 		ORDER BY sim_vec.combined_embedding <=> ref_vec.combined_embedding
 		LIMIT 8`
 
-	rows, err := r.db.Query(ctx, q, userID)
+	items, err := r.scanRecommendations(ctx, q, locale, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Fallback: no view history yet → most-viewed popular products.
+	if len(items) == 0 {
+		const fallback = `
+			SELECT p.id, p.name_raw, p.name_i18n, COALESCE(p.price, 0), COALESCE(pi.image_url, '')
+			FROM products p
+			LEFT JOIN LATERAL (
+				SELECT image_url FROM product_images
+				WHERE product_id = p.id ORDER BY display_order LIMIT 1
+			) pi ON true
+			LEFT JOIN (
+				SELECT product_id, COUNT(*) AS views
+				FROM product_views GROUP BY product_id
+			) pv ON pv.product_id = p.id
+			WHERE p.deleted_at IS NULL AND p.is_active = true
+			ORDER BY COALESCE(pv.views, 0) DESC, p.id
+			LIMIT 8`
+		return r.scanRecommendations(ctx, fallback, locale)
+	}
+
+	return items, nil
+}
+
+func (r *Repository) scanRecommendations(ctx context.Context, q, locale string, args ...any) ([]user.RecommendedItem, error) {
+	rows, err := r.db.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("userrepo: get recommendations: %w", err)
 	}
@@ -261,10 +291,14 @@ func (r *Repository) GetRecommendations(ctx context.Context, userID string) ([]u
 
 	var items []user.RecommendedItem
 	for rows.Next() {
-		var item user.RecommendedItem
-		if err := rows.Scan(&item.ID, &item.Name, &item.Price, &item.ImageURL); err != nil {
+		var (
+			item user.RecommendedItem
+			i18n product.I18nMap
+		)
+		if err := rows.Scan(&item.ID, &item.Name, &i18n, &item.Price, &item.ImageURL); err != nil {
 			return nil, fmt.Errorf("userrepo: scan recommendation: %w", err)
 		}
+		item.Name = product.Localize(item.Name, i18n, locale)
 		items = append(items, item)
 	}
 	return items, rows.Err()

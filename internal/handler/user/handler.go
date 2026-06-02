@@ -26,7 +26,7 @@ type service interface {
 
 	GetHistory(ctx context.Context, userID string) ([]user.HistoryItem, error)
 	AddHistory(ctx context.Context, userID string, productID int64) error
-	GetRecommendations(ctx context.Context, userID string) ([]user.RecommendedItem, error)
+	GetRecommendations(ctx context.Context, userID, locale string) ([]user.RecommendedItem, error)
 
 	GetOrders(ctx context.Context, userID string) ([]user.Order, error)
 	GetOrderDetail(ctx context.Context, userID string, orderID int64) (*user.OrderDetail, error)
@@ -236,7 +236,8 @@ func (h *Handler) GetRecommendations(w http.ResponseWriter, r *http.Request) {
 	if u.ID == "" {
 		return
 	}
-	items, err := h.svc.GetRecommendations(r.Context(), u.ID)
+	locale := middleware.LocaleFromContext(r.Context())
+	items, err := h.svc.GetRecommendations(r.Context(), u.ID, locale)
 	if err != nil {
 		respond.InternalError(w)
 		return

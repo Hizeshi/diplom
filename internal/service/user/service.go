@@ -18,7 +18,7 @@ type repo interface {
 
 	GetHistory(ctx context.Context, userID string) ([]user.HistoryItem, error)
 	AddHistory(ctx context.Context, userID string, productID int64) error
-	GetRecommendations(ctx context.Context, userID string) ([]user.RecommendedItem, error)
+	GetRecommendations(ctx context.Context, userID, locale string) ([]user.RecommendedItem, error)
 
 	GetOrders(ctx context.Context, userID string) ([]user.Order, error)
 	GetOrderDetail(ctx context.Context, userID string, orderID int64) (*user.OrderDetail, error)
@@ -88,8 +88,8 @@ func (s *Service) AddHistory(ctx context.Context, userID string, productID int64
 	return s.repo.AddHistory(ctx, userID, productID)
 }
 
-func (s *Service) GetRecommendations(ctx context.Context, userID string) ([]user.RecommendedItem, error) {
-	return s.repo.GetRecommendations(ctx, userID)
+func (s *Service) GetRecommendations(ctx context.Context, userID, locale string) ([]user.RecommendedItem, error) {
+	return s.repo.GetRecommendations(ctx, userID, locale)
 }
 
 // ─── Orders ──────────────────────────────────────────────────────────────────
