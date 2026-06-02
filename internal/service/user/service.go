@@ -13,7 +13,7 @@ type repo interface {
 	RemoveCartItem(ctx context.Context, userID string, productID int64) error
 
 	GetFavorites(ctx context.Context, userID string) ([]user.FavoriteItem, error)
-	ToggleFavorite(ctx context.Context, userID string, productID int64) error
+	ToggleFavorite(ctx context.Context, userID string, productID int64) (string, error)
 	RemoveFavorite(ctx context.Context, userID string, productID int64) error
 
 	GetHistory(ctx context.Context, userID string) ([]user.HistoryItem, error)
@@ -70,7 +70,7 @@ func (s *Service) GetFavorites(ctx context.Context, userID string) ([]user.Favor
 	return s.repo.GetFavorites(ctx, userID)
 }
 
-func (s *Service) ToggleFavorite(ctx context.Context, userID string, productID int64) error {
+func (s *Service) ToggleFavorite(ctx context.Context, userID string, productID int64) (string, error) {
 	return s.repo.ToggleFavorite(ctx, userID, productID)
 }
 

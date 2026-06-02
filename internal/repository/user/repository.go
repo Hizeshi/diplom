@@ -127,28 +127,43 @@ func (r *Repository) GetFavorites(ctx context.Context, userID string) ([]user.Fa
 		if err := rows.Scan(&item.ProductID, &item.Name, &item.Price, &item.ImageURL); err != nil {
 			return nil, fmt.Errorf("userrepo: scan favorite: %w", err)
 		}
+		item.ID = item.ProductID // mirror for frontend compatibility
 		items = append(items, item)
 	}
 	return items, rows.Err()
 }
 
 // ToggleFavorite adds the product if not in favorites, removes it if it is.
-func (r *Repository) ToggleFavorite(ctx context.Context, userID string, productID int64) error {
-	// Atomic toggle: try to delete; if nothing was deleted — insert (only if product exists).
-	const q = `
-		WITH del AS (
-			DELETE FROM favorites WHERE user_id = $1 AND product_id = $2 RETURNING product_id
-		)
-		INSERT INTO favorites (user_id, product_id)
-		SELECT $1, $2
-		WHERE NOT EXISTS (SELECT 1 FROM del)
-		  AND EXISTS (SELECT 1 FROM products WHERE id = $2 AND deleted_at IS NULL)`
-
-	_, err := r.db.Exec(ctx, q, userID, productID)
+// Returns "added" or "removed".
+func (r *Repository) ToggleFavorite(ctx context.Context, userID string, productID int64) (string, error) {
+	// Check current state first.
+	var exists bool
+	err := r.db.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM favorites WHERE user_id=$1 AND product_id=$2)`,
+		userID, productID,
+	).Scan(&exists)
 	if err != nil {
-		return fmt.Errorf("userrepo: toggle favorite: %w", err)
+		return "", fmt.Errorf("userrepo: check favorite: %w", err)
 	}
-	return nil
+
+	if exists {
+		_, err = r.db.Exec(ctx,
+			`DELETE FROM favorites WHERE user_id=$1 AND product_id=$2`,
+			userID, productID)
+		if err != nil {
+			return "", fmt.Errorf("userrepo: remove favorite: %w", err)
+		}
+		return "removed", nil
+	}
+
+	_, err = r.db.Exec(ctx,
+		`INSERT INTO favorites (user_id, product_id)
+		 SELECT $1, $2 WHERE EXISTS (SELECT 1 FROM products WHERE id=$2 AND deleted_at IS NULL)`,
+		userID, productID)
+	if err != nil {
+		return "", fmt.Errorf("userrepo: add favorite: %w", err)
+	}
+	return "added", nil
 }
 
 func (r *Repository) RemoveFavorite(ctx context.Context, userID string, productID int64) error {

@@ -16,10 +16,17 @@ type CartItem struct {
 // ─── Favorites ───────────────────────────────────────────────────────────────
 
 type FavoriteItem struct {
+	ID        int64   `json:"id"`         // same as product_id — for frontend compatibility
 	ProductID int64   `json:"product_id"`
 	Name      string  `json:"name"`
 	Price     float64 `json:"price"`
 	ImageURL  string  `json:"image_url"`
+}
+
+// ToggleResult tells the caller whether the item was added or removed.
+type ToggleResult struct {
+	Success bool   `json:"success"`
+	Action  string `json:"action"` // "added" | "removed"
 }
 
 // ─── History ─────────────────────────────────────────────────────────────────

@@ -20,7 +20,7 @@ type service interface {
 	RemoveFromCart(ctx context.Context, userID string, productID int64) error
 
 	GetFavorites(ctx context.Context, userID string) ([]user.FavoriteItem, error)
-	ToggleFavorite(ctx context.Context, userID string, productID int64) error
+	ToggleFavorite(ctx context.Context, userID string, productID int64) (string, error)
 	RemoveFavorite(ctx context.Context, userID string, productID int64) error
 
 	GetHistory(ctx context.Context, userID string) ([]user.HistoryItem, error)
@@ -148,17 +148,26 @@ func (h *Handler) ToggleFavorite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		ProductID int64 `json:"productId"`
+		ProductID      int64 `json:"productId"`
+		ProductIDSnake int64 `json:"product_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		respond.BadRequest(w, "invalid body")
 		return
 	}
-	if err := h.svc.ToggleFavorite(r.Context(), u.ID, body.ProductID); err != nil {
+	if body.ProductID == 0 {
+		body.ProductID = body.ProductIDSnake
+	}
+	if body.ProductID <= 0 {
+		respond.BadRequest(w, "productId is required")
+		return
+	}
+	action, err := h.svc.ToggleFavorite(r.Context(), u.ID, body.ProductID)
+	if err != nil {
 		respond.InternalError(w)
 		return
 	}
-	respond.OK(w, map[string]bool{"success": true})
+	respond.OK(w, user.ToggleResult{Success: true, Action: action})
 }
 
 // DELETE /api/user/favorites/{productId}
