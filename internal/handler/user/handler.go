@@ -3,6 +3,7 @@ package userhandler
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -164,6 +165,7 @@ func (h *Handler) ToggleFavorite(w http.ResponseWriter, r *http.Request) {
 	}
 	action, err := h.svc.ToggleFavorite(r.Context(), u.ID, body.ProductID)
 	if err != nil {
+		slog.Error("toggle favorite failed", "user_id", u.ID, "product_id", body.ProductID, "err", err)
 		respond.InternalError(w)
 		return
 	}

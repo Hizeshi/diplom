@@ -158,7 +158,7 @@ func (r *Repository) ToggleFavorite(ctx context.Context, userID string, productI
 
 	_, err = r.db.Exec(ctx,
 		`INSERT INTO favorites (user_id, product_id)
-		 SELECT $1, $2 WHERE EXISTS (SELECT 1 FROM products WHERE id=$2 AND deleted_at IS NULL)`,
+		 SELECT $1::uuid, $2::bigint WHERE EXISTS (SELECT 1 FROM products WHERE id=$2 AND deleted_at IS NULL)`,
 		userID, productID)
 	if err != nil {
 		return "", fmt.Errorf("userrepo: add favorite: %w", err)
@@ -212,7 +212,7 @@ func (r *Repository) AddHistory(ctx context.Context, userID string, productID in
 	// Use conditional insert to avoid FK violation for non-existent product_id.
 	_, err := r.db.Exec(ctx,
 		`INSERT INTO product_views (user_id, product_id)
-		 SELECT $1, $2 WHERE EXISTS (SELECT 1 FROM products WHERE id = $2 AND deleted_at IS NULL)`,
+		 SELECT $1::uuid, $2::bigint WHERE EXISTS (SELECT 1 FROM products WHERE id = $2 AND deleted_at IS NULL)`,
 		userID, productID)
 	if err != nil {
 		return fmt.Errorf("userrepo: add history: %w", err)
