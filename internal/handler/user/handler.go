@@ -123,7 +123,7 @@ func (h *Handler) RemoveFromCart(w http.ResponseWriter, r *http.Request) {
 		respond.InternalError(w)
 		return
 	}
-	respond.NoContent(w)
+	respond.OK(w, map[string]bool{"success": true})
 }
 
 // ─── Favorites ───────────────────────────────────────────────────────────────
@@ -187,7 +187,7 @@ func (h *Handler) RemoveFavorite(w http.ResponseWriter, r *http.Request) {
 		respond.InternalError(w)
 		return
 	}
-	respond.NoContent(w)
+	respond.OK(w, map[string]bool{"success": true})
 }
 
 // ─── History ─────────────────────────────────────────────────────────────────
@@ -352,7 +352,7 @@ func (h *Handler) DeleteAvatar(w http.ResponseWriter, r *http.Request) {
 		respond.InternalError(w)
 		return
 	}
-	respond.NoContent(w)
+	respond.OK(w, map[string]bool{"success": true})
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
