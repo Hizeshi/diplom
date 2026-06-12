@@ -16,10 +16,11 @@ func New(db *pgxpool.Pool) *Repository {
 	return &Repository{db: db}
 }
 
-// Upsert inserts or updates a product by article.
-// Brand, series, color are resolved by name inside the query.
-func (r *Repository) Upsert(ctx context.Context, row productimport.Row) error {
-	_, err := r.db.Exec(ctx, `
+// Upsert inserts or updates a product by article and reports whether a new
+// row was created. Brand, series, color are resolved by name inside the query.
+func (r *Repository) Upsert(ctx context.Context, row productimport.Row) (bool, error) {
+	var created bool
+	err := r.db.QueryRow(ctx, `
 		WITH b AS (SELECT id FROM brands          WHERE name = $5 LIMIT 1),
 		     s AS (SELECT id FROM product_series  WHERE name = $6 LIMIT 1),
 		     c AS (SELECT id FROM colors          WHERE name = $7 LIMIT 1)
@@ -40,6 +41,7 @@ func (r *Repository) Upsert(ctx context.Context, row productimport.Row) error {
 			product_type = EXCLUDED.product_type,
 			description  = EXCLUDED.description,
 			updated_at   = NOW()
+		RETURNING (xmax = 0) AS created
 	`,
 		row.Article,
 		row.Name,
@@ -49,6 +51,6 @@ func (r *Repository) Upsert(ctx context.Context, row productimport.Row) error {
 		row.Series,
 		row.Color,
 		row.Description,
-	)
-	return err
+	).Scan(&created)
+	return created, err
 }

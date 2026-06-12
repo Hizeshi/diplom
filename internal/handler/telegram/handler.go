@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	telegramsvc "iq-home/backend/internal/service/telegram"
@@ -18,6 +19,7 @@ type Handler struct {
 	svc     service
 	secret  []byte
 	enabled bool
+	log     *slog.Logger
 }
 
 func New(svc service, webhookSecret string) *Handler {
@@ -25,6 +27,7 @@ func New(svc service, webhookSecret string) *Handler {
 		svc:     svc,
 		secret:  []byte(webhookSecret),
 		enabled: svc != nil && webhookSecret != "",
+		log:     slog.Default(),
 	}
 }
 
@@ -52,8 +55,9 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Telegram expects a fast 200 OK; errors are logged by the service.
-	_ = h.svc.HandleUpdate(r.Context(), upd)
+	if err := h.svc.HandleUpdate(r.Context(), upd); err != nil {
+		h.log.Error("telegram: handle update failed", "err", err, "update_id", upd.UpdateID)
+	}
 
 	w.WriteHeader(http.StatusOK)
 }

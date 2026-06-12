@@ -36,7 +36,7 @@ var columnAliases = map[string]string{
 }
 
 type repo interface {
-	Upsert(ctx context.Context, row productimport.Row) error
+	Upsert(ctx context.Context, row productimport.Row) (created bool, err error)
 }
 
 type Service struct {
@@ -70,13 +70,23 @@ func (s *Service) importRows(ctx context.Context, rows []productimport.Row) (*pr
 	for i, row := range rows {
 		if row.Article == "" || row.Name == "" {
 			result.Failed++
-			result.Errors = append(result.Errors, fmt.Sprintf("row %d: article and name are required", i+1))
+			result.Errors = append(result.Errors, productimport.RowError{
+				Row: i + 2, Article: row.Article, Error: "артикул и название обязательны",
+			})
 			continue
 		}
-		if err := s.repo.Upsert(ctx, row); err != nil {
+		created, err := s.repo.Upsert(ctx, row)
+		if err != nil {
 			result.Failed++
-			result.Errors = append(result.Errors, fmt.Sprintf("row %d (%s): %v", i+1, row.Article, err))
+			result.Errors = append(result.Errors, productimport.RowError{
+				Row: i + 2, Article: row.Article, Error: err.Error(),
+			})
 			continue
+		}
+		if created {
+			result.Created++
+		} else {
+			result.Updated++
 		}
 		result.Upserted++
 	}

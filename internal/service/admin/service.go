@@ -16,6 +16,7 @@ type repo interface {
 	SendManagerMessage(ctx context.Context, sessionID, text string) error
 
 	ListProducts(ctx context.Context, search string, limit, page int) (*admin.ProductList, error)
+	GetProduct(ctx context.Context, id int64) (*admin.Product, error)
 	CreateProduct(ctx context.Context, data admin.ProductCreate) (int64, error)
 	UpdateProduct(ctx context.Context, id int64, data admin.ProductUpdate) error
 	DeleteProduct(ctx context.Context, id int64) error
@@ -29,6 +30,8 @@ type repo interface {
 
 	ListOrders(ctx context.Context) ([]admin.Order, error)
 	GetOrderDetail(ctx context.Context, id int64) (*admin.OrderDetail, error)
+	UpdateOrderStatus(ctx context.Context, id int64, status string) error
+	DeleteOrder(ctx context.Context, id int64) error
 
 	ListKnowledge(ctx context.Context) ([]admin.KnowledgeEntry, error)
 	UpsertKnowledge(ctx context.Context, id *int64, topic, content string, embedding []float32) error
@@ -39,6 +42,10 @@ type repo interface {
 
 	ClearUserCart(ctx context.Context, userID string) error
 	ClearUserHistory(ctx context.Context, userID string) error
+	DeleteCartItem(ctx context.Context, userID string, productID int64) error
+	DeleteHistoryItem(ctx context.Context, userID string, productID int64) error
+	DeleteFavoriteItem(ctx context.Context, userID string, productID int64) error
+	ClearUserFavorites(ctx context.Context, userID string) error
 	UpdateConfiguratorType(ctx context.Context, productID int64, configuratorType string) error
 }
 
@@ -87,6 +94,10 @@ func (s *Service) SendManagerMessage(ctx context.Context, sessionID, text string
 
 func (s *Service) ListProducts(ctx context.Context, search string, limit, page int) (*admin.ProductList, error) {
 	return s.repo.ListProducts(ctx, search, limit, page)
+}
+
+func (s *Service) GetProduct(ctx context.Context, id int64) (*admin.Product, error) {
+	return s.repo.GetProduct(ctx, id)
 }
 
 func (s *Service) CreateProduct(ctx context.Context, data admin.ProductCreate) (int64, error) {
@@ -145,6 +156,14 @@ func (s *Service) GetOrderDetail(ctx context.Context, id int64) (*admin.OrderDet
 	return s.repo.GetOrderDetail(ctx, id)
 }
 
+func (s *Service) UpdateOrderStatus(ctx context.Context, id int64, status string) error {
+	return s.repo.UpdateOrderStatus(ctx, id, status)
+}
+
+func (s *Service) DeleteOrder(ctx context.Context, id int64) error {
+	return s.repo.DeleteOrder(ctx, id)
+}
+
 // ─── Knowledge ───────────────────────────────────────────────────────────────
 
 func (s *Service) ListKnowledge(ctx context.Context) ([]admin.KnowledgeEntry, error) {
@@ -172,6 +191,22 @@ func (s *Service) ClearUserCart(ctx context.Context, userID string) error {
 
 func (s *Service) ClearUserHistory(ctx context.Context, userID string) error {
 	return s.repo.ClearUserHistory(ctx, userID)
+}
+
+func (s *Service) DeleteCartItem(ctx context.Context, userID string, productID int64) error {
+	return s.repo.DeleteCartItem(ctx, userID, productID)
+}
+
+func (s *Service) DeleteHistoryItem(ctx context.Context, userID string, productID int64) error {
+	return s.repo.DeleteHistoryItem(ctx, userID, productID)
+}
+
+func (s *Service) DeleteFavoriteItem(ctx context.Context, userID string, productID int64) error {
+	return s.repo.DeleteFavoriteItem(ctx, userID, productID)
+}
+
+func (s *Service) ClearUserFavorites(ctx context.Context, userID string) error {
+	return s.repo.ClearUserFavorites(ctx, userID)
 }
 
 // ─── Products Extra ───────────────────────────────────────────────────────────

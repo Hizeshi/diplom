@@ -90,4 +90,5 @@ type MediaRequest struct {
 	Data        []byte
 	Filename    string
 	MimeType    string
+	Trusted     bool
 }

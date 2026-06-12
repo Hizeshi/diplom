@@ -109,11 +109,17 @@ func (r *Repository) ListProducts(ctx context.Context, search string, limit, pag
 		       COALESCE(p.description,''), p.brand_id, COALESCE(b.name,''),
 		       p.series_id, COALESCE(s.name,''), p.color_id, COALESCE(c.name,''),
 		       COALESCE(p.configurator_type,''), p.is_active, p.created_at,
-		       COUNT(*) OVER() AS total
+		       COUNT(*) OVER() AS total,
+		       pi.id, pi.image_url, pi.object_path
 		FROM products p
 		LEFT JOIN brands b ON b.id = p.brand_id AND b.deleted_at IS NULL
 		LEFT JOIN product_series s ON s.id = p.series_id
 		LEFT JOIN colors c ON c.id = p.color_id
+		LEFT JOIN LATERAL (
+			SELECT id, COALESCE(image_url,''), COALESCE(object_path,'')
+			FROM product_images WHERE product_id = p.id
+			ORDER BY display_order LIMIT 1
+		) pi(id, image_url, object_path) ON true
 		WHERE %s
 		ORDER BY p.created_at DESC
 		LIMIT $1 OFFSET $2`, where)
@@ -130,13 +136,21 @@ func (r *Repository) ListProducts(ctx context.Context, search string, limit, pag
 	)
 	for rows.Next() {
 		var p admin.Product
+		var imgID *int64
+		var imgURL, imgPath *string
 		if err := rows.Scan(
 			&p.ID, &p.Article, &p.Name, &p.Type, &p.Price, &p.Stock,
 			&p.Description, &p.BrandID, &p.BrandName,
 			&p.SeriesID, &p.SeriesName, &p.ColorID, &p.ColorName,
 			&p.ConfiguratorType, &p.IsActive, &p.CreatedAt, &total,
+			&imgID, &imgURL, &imgPath,
 		); err != nil {
 			return nil, fmt.Errorf("adminrepo: scan product: %w", err)
+		}
+		if imgID != nil {
+			p.Images = []admin.ProductImage{{ID: *imgID, URL: *imgURL, Path: *imgPath}}
+		} else {
+			p.Images = []admin.ProductImage{}
 		}
 		items = append(items, p)
 	}
@@ -146,10 +160,12 @@ func (r *Repository) ListProducts(ctx context.Context, search string, limit, pag
 func (r *Repository) CreateProduct(ctx context.Context, data admin.ProductCreate) (int64, error) {
 	var id int64
 	err := r.db.QueryRow(ctx, `
-		INSERT INTO products (name_raw, article, price, stock, product_type, is_active)
-		VALUES ($1, $2, $3, $4, $5, true)
+		INSERT INTO products (name_raw, article, price, stock, product_type,
+		                      description, brand_id, series_id, color_id, is_active)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
 		RETURNING id`,
 		data.Name, data.Article, data.Price, data.Stock, data.Type,
+		data.Description, data.BrandID, data.SeriesID, data.ColorID,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("adminrepo: create product: %w", err)
@@ -232,9 +248,13 @@ func (r *Repository) ListUsers(ctx context.Context, search string, limit, page i
 		SELECT p.id::text, COALESCE(p.email,''), COALESCE(p.full_name,''),
 		       COALESCE(p.phone,''), COALESCE(p.role,'customer'),
 		       COALESCE(p.avatar_url,''), p.created_at,
+		       COUNT(o.id) AS orders_count,
+		       COALESCE(SUM(o.total_amount), 0) AS total_spent,
 		       COUNT(*) OVER() AS total
 		FROM profiles p
+		LEFT JOIN orders o ON o.user_id::uuid = p.id
 		WHERE %s
+		GROUP BY p.id, p.email, p.full_name, p.phone, p.role, p.avatar_url, p.created_at
 		ORDER BY p.created_at DESC
 		LIMIT $1 OFFSET $2`, where)
 
@@ -251,10 +271,12 @@ func (r *Repository) ListUsers(ctx context.Context, search string, limit, page i
 	for rows.Next() {
 		var u admin.User
 		if err := rows.Scan(
-			&u.ID, &u.Email, &u.FullName, &u.Phone, &u.Role, &u.AvatarURL, &u.CreatedAt, &total,
+			&u.ID, &u.Email, &u.FullName, &u.Phone, &u.Role, &u.AvatarURL, &u.CreatedAt,
+			&u.OrdersCount, &u.TotalSpent, &total,
 		); err != nil {
 			return nil, fmt.Errorf("adminrepo: scan user: %w", err)
 		}
+		u.RegisteredAt = u.CreatedAt
 		items = append(items, u)
 	}
 	return &admin.UserList{Items: items, Total: total}, rows.Err()
@@ -327,6 +349,26 @@ func (r *Repository) GetUserDetail(ctx context.Context, id string) (*admin.UserD
 			return nil, err
 		}
 		u.History = append(u.History, h)
+	}
+	rows.Close()
+
+	// Favorites
+	rows, err = r.db.Query(ctx, `
+		SELECT f.product_id, p.name_raw, p.price
+		FROM favorites f
+		JOIN products p ON p.id = f.product_id
+		WHERE f.user_id = $1
+		ORDER BY f.created_at DESC`, id)
+	if err != nil {
+		return nil, fmt.Errorf("adminrepo: user favorites: %w", err)
+	}
+	for rows.Next() {
+		var f admin.UserFavoriteItem
+		if err := rows.Scan(&f.ProductID, &f.Name, &f.Price); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		u.Favorites = append(u.Favorites, f)
 	}
 	rows.Close()
 
@@ -551,6 +593,100 @@ func (r *Repository) UpdateConfiguratorType(ctx context.Context, productID int64
 		`UPDATE products SET configurator_type = $1, updated_at = NOW() WHERE id = $2`,
 		configuratorType, productID,
 	)
+	return err
+}
+
+// ─── Products single ─────────────────────────────────────────────────────────
+
+func (r *Repository) GetProduct(ctx context.Context, id int64) (*admin.Product, error) {
+	var p admin.Product
+	err := r.db.QueryRow(ctx, `
+		SELECT p.id, p.article, p.name_raw, p.product_type,
+		       p.price, p.stock, COALESCE(p.description,''),
+		       p.brand_id, COALESCE(b.name,''),
+		       p.series_id, COALESCE(s.name,''),
+		       p.color_id, COALESCE(c.name,''),
+		       COALESCE(p.configurator_type,''), p.is_active, p.created_at
+		FROM products p
+		LEFT JOIN brands b ON b.id = p.brand_id
+		LEFT JOIN product_series s ON s.id = p.series_id
+		LEFT JOIN colors c ON c.id = p.color_id
+		WHERE p.id = $1 AND p.deleted_at IS NULL`, id).
+		Scan(&p.ID, &p.Article, &p.Name, &p.Type,
+			&p.Price, &p.Stock, &p.Description,
+			&p.BrandID, &p.BrandName,
+			&p.SeriesID, &p.SeriesName,
+			&p.ColorID, &p.ColorName,
+			&p.ConfiguratorType, &p.IsActive, &p.CreatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("adminrepo: get product: %w", err)
+	}
+
+	imgRows, err := r.db.Query(ctx,
+		`SELECT id, COALESCE(image_url,''), COALESCE(object_path,'')
+		 FROM product_images WHERE product_id = $1 ORDER BY display_order`, id)
+	if err != nil {
+		return nil, fmt.Errorf("adminrepo: get product images: %w", err)
+	}
+	defer imgRows.Close()
+	for imgRows.Next() {
+		var img admin.ProductImage
+		if err := imgRows.Scan(&img.ID, &img.URL, &img.Path); err != nil {
+			return nil, fmt.Errorf("adminrepo: scan product image: %w", err)
+		}
+		p.Images = append(p.Images, img)
+	}
+	if p.Images == nil {
+		p.Images = []admin.ProductImage{}
+	}
+
+	return &p, nil
+}
+
+// ─── Orders management ───────────────────────────────────────────────────────
+
+func (r *Repository) UpdateOrderStatus(ctx context.Context, id int64, status string) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE orders SET status = $2 WHERE id = $1`, id, status)
+	if err != nil {
+		return fmt.Errorf("adminrepo: update order status: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) DeleteOrder(ctx context.Context, id int64) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM orders WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("adminrepo: delete order: %w", err)
+	}
+	return nil
+}
+
+// ─── User item management ────────────────────────────────────────────────────
+
+func (r *Repository) DeleteCartItem(ctx context.Context, userID string, productID int64) error {
+	_, err := r.db.Exec(ctx,
+		`DELETE FROM cart_items WHERE user_id = $1 AND product_id = $2`, userID, productID)
+	return err
+}
+
+func (r *Repository) DeleteHistoryItem(ctx context.Context, userID string, productID int64) error {
+	_, err := r.db.Exec(ctx,
+		`DELETE FROM product_views WHERE user_id = $1 AND product_id = $2`, userID, productID)
+	return err
+}
+
+func (r *Repository) DeleteFavoriteItem(ctx context.Context, userID string, productID int64) error {
+	_, err := r.db.Exec(ctx,
+		`DELETE FROM favorites WHERE user_id = $1 AND product_id = $2`, userID, productID)
+	return err
+}
+
+func (r *Repository) ClearUserFavorites(ctx context.Context, userID string) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM favorites WHERE user_id = $1`, userID)
 	return err
 }
 

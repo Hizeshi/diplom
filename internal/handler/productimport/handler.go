@@ -27,6 +27,7 @@ func New(svc service) *Handler {
 
 // POST /v1/products/import
 // Accepts multipart/form-data with field "file" (CSV or XLSX).
+// The field "data" is accepted as an alias for the admin panel.
 func (h *Handler) Import(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(maxImportSize); err != nil {
 		respond.BadRequest(w, "failed to parse form")
@@ -34,6 +35,9 @@ func (h *Handler) Import(w http.ResponseWriter, r *http.Request) {
 	}
 
 	f, header, err := r.FormFile("file")
+	if err != nil {
+		f, header, err = r.FormFile("data")
+	}
 	if err != nil {
 		respond.BadRequest(w, "file is required")
 		return

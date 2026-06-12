@@ -75,17 +75,16 @@ func (s *Service) HandleUpdate(ctx context.Context, upd Update) error {
 		if ferr != nil {
 			return ferr
 		}
-		ct := msg.Voice.MimeType
-		if ct == "" {
-			ct = "audio/ogg"
-		}
+		// Telegram sends .oga files — OpenAI only accepts .ogg
+		filename := strings.TrimSuffix(filepath.Base(filePath), ".oga") + ".ogg"
 		resp, err = s.chat.ProcessMedia(ctx, chat.MediaRequest{
 			SessionID:   sessionID,
 			MessageType: "voice",
-			Filename:    filepath.Base(filePath),
+			Filename:    filename,
 			Data:        data,
-			MimeType:    ct,
+			MimeType:    "audio/ogg",
 			Platform:    "telegram",
+			Trusted:     true,
 		})
 
 	case len(msg.Photo) > 0:
@@ -101,6 +100,7 @@ func (s *Service) HandleUpdate(ctx context.Context, upd Update) error {
 			Data:        data,
 			MimeType:    "image/jpeg",
 			Platform:    "telegram",
+			Trusted:     true,
 		})
 
 	case msg.Document != nil:
@@ -119,6 +119,7 @@ func (s *Service) HandleUpdate(ctx context.Context, upd Update) error {
 			Data:        data,
 			MimeType:    ct,
 			Platform:    "telegram",
+			Trusted:     true,
 		})
 
 	default:
@@ -131,6 +132,7 @@ func (s *Service) HandleUpdate(ctx context.Context, upd Update) error {
 			Message:   text,
 			UserID:    chatIDStr,
 			Platform:  "telegram",
+			Trusted:   true,
 		})
 	}
 

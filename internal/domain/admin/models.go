@@ -23,20 +23,27 @@ type ChatMessage struct {
 type Product struct {
 	ID               int64      `json:"id"`
 	Article          string     `json:"article"`
-	Name             string     `json:"name"`
+	Name             string     `json:"name_raw"`
 	Type             string     `json:"product_type"`
 	Price            float64    `json:"price"`
 	Stock            int        `json:"stock"`
 	Description      string     `json:"description"`
 	BrandID          *int64     `json:"brand_id"`
-	BrandName        string     `json:"brand_name"`
+	BrandName        string     `json:"brand"`
 	SeriesID         *int64     `json:"series_id"`
-	SeriesName       string     `json:"series_name"`
+	SeriesName       string     `json:"series"`
 	ColorID          *int64     `json:"color_id"`
 	ColorName        string     `json:"color_name"`
-	ConfiguratorType string     `json:"configurator_type"`
-	IsActive         bool       `json:"is_active"`
-	CreatedAt        time.Time  `json:"created_at"`
+	ConfiguratorType string         `json:"configurator_type"`
+	IsActive         bool           `json:"is_active"`
+	CreatedAt        time.Time      `json:"created_at"`
+	Images           []ProductImage `json:"images"`
+}
+
+type ProductImage struct {
+	ID   int64  `json:"id"`
+	URL  string `json:"url"`
+	Path string `json:"path"`
 }
 
 type ProductList struct {
@@ -45,11 +52,15 @@ type ProductList struct {
 }
 
 type ProductCreate struct {
-	Name    string  `json:"name"`
-	Article string  `json:"article"`
-	Price   float64 `json:"price"`
-	Stock   int     `json:"stock"`
-	Type    string  `json:"type"`
+	Name        string  `json:"name"`
+	Article     string  `json:"article"`
+	Price       float64 `json:"price"`
+	Stock       int     `json:"stock"`
+	Type        string  `json:"type"`
+	Description string  `json:"description"`
+	BrandID     *int64  `json:"brandId"`
+	SeriesID    *int64  `json:"seriesId"`
+	ColorID     *int64  `json:"colorId"`
 }
 
 type ProductUpdate struct {
@@ -76,13 +87,16 @@ type DuplicatePair struct {
 // ─── Users ───────────────────────────────────────────────────────────────────
 
 type User struct {
-	ID        string    `json:"id"`
-	Email     string    `json:"email"`
-	FullName  string    `json:"full_name"`
-	Phone     string    `json:"phone"`
-	Role      string    `json:"role"`
-	AvatarURL string    `json:"avatar_url"`
-	CreatedAt time.Time `json:"created_at"`
+	ID           string    `json:"id"`
+	Email        string    `json:"email"`
+	FullName     string    `json:"full_name"`
+	Phone        string    `json:"phone"`
+	Role         string    `json:"role"`
+	AvatarURL    string    `json:"avatar_url"`
+	CreatedAt    time.Time `json:"created_at"`
+	RegisteredAt time.Time `json:"registered_at"`
+	OrdersCount  int64     `json:"orders_count"`
+	TotalSpent   float64   `json:"total_spent"`
 }
 
 type UserList struct {
@@ -98,9 +112,16 @@ type UserUpdate struct {
 
 type UserDetail struct {
 	User
-	Orders  []UserOrder       `json:"orders"`
-	Cart    []UserCartItem    `json:"cart"`
-	History []UserHistoryItem `json:"history"`
+	Orders    []UserOrder         `json:"orders"`
+	Cart      []UserCartItem      `json:"cart"`
+	History   []UserHistoryItem   `json:"history"`
+	Favorites []UserFavoriteItem  `json:"favorites"`
+}
+
+type UserFavoriteItem struct {
+	ProductID int64  `json:"product_id"`
+	Name      string `json:"name"`
+	Price     float64 `json:"price"`
 }
 
 type UserOrder struct {

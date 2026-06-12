@@ -19,6 +19,7 @@ type service interface {
 	SendManagerMessage(ctx context.Context, sessionID, text string) error
 
 	ListProducts(ctx context.Context, search string, limit, page int) (*admin.ProductList, error)
+	GetProduct(ctx context.Context, id int64) (*admin.Product, error)
 	CreateProduct(ctx context.Context, data admin.ProductCreate) (int64, error)
 	UpdateProduct(ctx context.Context, id int64, data admin.ProductUpdate) error
 	DeleteProduct(ctx context.Context, id int64) error
@@ -33,6 +34,8 @@ type service interface {
 
 	ListOrders(ctx context.Context) ([]admin.Order, error)
 	GetOrderDetail(ctx context.Context, id int64) (*admin.OrderDetail, error)
+	UpdateOrderStatus(ctx context.Context, id int64, status string) error
+	DeleteOrder(ctx context.Context, id int64) error
 
 	ListKnowledge(ctx context.Context) ([]admin.KnowledgeEntry, error)
 	UpsertKnowledge(ctx context.Context, req admin.KnowledgeUpsert) error
@@ -43,6 +46,10 @@ type service interface {
 
 	ClearUserCart(ctx context.Context, userID string) error
 	ClearUserHistory(ctx context.Context, userID string) error
+	DeleteCartItem(ctx context.Context, userID string, productID int64) error
+	DeleteHistoryItem(ctx context.Context, userID string, productID int64) error
+	DeleteFavoriteItem(ctx context.Context, userID string, productID int64) error
+	ClearUserFavorites(ctx context.Context, userID string) error
 	UpdateConfiguratorType(ctx context.Context, productID int64, configuratorType string) error
 }
 
@@ -78,16 +85,28 @@ func (h *Handler) GetChatHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /api/admin/chats/{sessionId}/toggle
+// Body: {"is_human_mode": bool}; "enabled" is accepted as an alias.
 func (h *Handler) ToggleHumanMode(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionId")
 	var body struct {
-		IsHumanMode bool `json:"is_human_mode"`
+		IsHumanMode *bool `json:"is_human_mode"`
+		Enabled     *bool `json:"enabled"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		respond.BadRequest(w, "invalid body")
 		return
 	}
-	if err := h.svc.ToggleHumanMode(r.Context(), sessionID, body.IsHumanMode); err != nil {
+	enabled := false
+	switch {
+	case body.IsHumanMode != nil:
+		enabled = *body.IsHumanMode
+	case body.Enabled != nil:
+		enabled = *body.Enabled
+	default:
+		respond.BadRequest(w, "is_human_mode is required")
+		return
+	}
+	if err := h.svc.ToggleHumanMode(r.Context(), sessionID, enabled); err != nil {
 		respond.InternalError(w)
 		return
 	}
@@ -391,6 +410,121 @@ func (h *Handler) UpdateConfiguratorType(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := h.svc.UpdateConfiguratorType(r.Context(), id, body.Type); err != nil {
+		respond.InternalError(w)
+		return
+	}
+	respond.OK(w, map[string]bool{"success": true})
+}
+
+// ─── Products single ─────────────────────────────────────────────────────────
+
+// GET /api/admin/products/{id}
+func (h *Handler) GetProduct(w http.ResponseWriter, r *http.Request) {
+	id, err := pathInt64(r, "id")
+	if err != nil {
+		respond.BadRequest(w, "invalid id")
+		return
+	}
+	p, err := h.svc.GetProduct(r.Context(), id)
+	if err != nil {
+		respond.InternalError(w)
+		return
+	}
+	if p == nil {
+		respond.NotFound(w)
+		return
+	}
+	respond.OK(w, p)
+}
+
+// ─── Orders management ───────────────────────────────────────────────────────
+
+// PUT /api/admin/orders/{id}/status
+func (h *Handler) UpdateOrderStatus(w http.ResponseWriter, r *http.Request) {
+	id, err := pathInt64(r, "id")
+	if err != nil {
+		respond.BadRequest(w, "invalid id")
+		return
+	}
+	var body struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Status == "" {
+		respond.BadRequest(w, "status required")
+		return
+	}
+	if err := h.svc.UpdateOrderStatus(r.Context(), id, body.Status); err != nil {
+		respond.InternalError(w)
+		return
+	}
+	respond.OK(w, map[string]bool{"success": true})
+}
+
+// DELETE /api/admin/orders/{id}
+func (h *Handler) DeleteOrder(w http.ResponseWriter, r *http.Request) {
+	id, err := pathInt64(r, "id")
+	if err != nil {
+		respond.BadRequest(w, "invalid id")
+		return
+	}
+	if err := h.svc.DeleteOrder(r.Context(), id); err != nil {
+		respond.InternalError(w)
+		return
+	}
+	respond.OK(w, map[string]bool{"success": true})
+}
+
+// ─── User item management ────────────────────────────────────────────────────
+
+// DELETE /api/admin/users/{id}/cart/{productId}
+func (h *Handler) DeleteCartItem(w http.ResponseWriter, r *http.Request) {
+	userID := chi.URLParam(r, "id")
+	productID, err := pathInt64(r, "productId")
+	if err != nil {
+		respond.BadRequest(w, "invalid productId")
+		return
+	}
+	if err := h.svc.DeleteCartItem(r.Context(), userID, productID); err != nil {
+		respond.InternalError(w)
+		return
+	}
+	respond.OK(w, map[string]bool{"success": true})
+}
+
+// DELETE /api/admin/users/{id}/history/{productId}
+func (h *Handler) DeleteHistoryItem(w http.ResponseWriter, r *http.Request) {
+	userID := chi.URLParam(r, "id")
+	productID, err := pathInt64(r, "productId")
+	if err != nil {
+		respond.BadRequest(w, "invalid productId")
+		return
+	}
+	if err := h.svc.DeleteHistoryItem(r.Context(), userID, productID); err != nil {
+		respond.InternalError(w)
+		return
+	}
+	respond.OK(w, map[string]bool{"success": true})
+}
+
+// DELETE /api/admin/users/{id}/favorites/{productId}
+func (h *Handler) DeleteFavoriteItem(w http.ResponseWriter, r *http.Request) {
+	userID := chi.URLParam(r, "id")
+	productID, err := pathInt64(r, "productId")
+	if err != nil {
+		respond.BadRequest(w, "invalid productId")
+		return
+	}
+	if err := h.svc.DeleteFavoriteItem(r.Context(), userID, productID); err != nil {
+		respond.InternalError(w)
+		return
+	}
+	respond.OK(w, map[string]bool{"success": true})
+}
+
+// DELETE /api/admin/users/{id}/favorites
+func (h *Handler) ClearUserFavorites(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.svc.ClearUserFavorites(r.Context(), id); err != nil {
 		respond.InternalError(w)
 		return
 	}
