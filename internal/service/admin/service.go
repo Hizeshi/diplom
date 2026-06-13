@@ -39,6 +39,7 @@ type repo interface {
 
 	ListContacts(ctx context.Context) ([]admin.Contact, error)
 	GetMetadata(ctx context.Context) (*admin.Metadata, error)
+	GetStats(ctx context.Context) (*admin.Stats, error)
 
 	ClearUserCart(ctx context.Context, userID string) error
 	ClearUserHistory(ctx context.Context, userID string) error
@@ -225,4 +226,9 @@ func (s *Service) ListContacts(ctx context.Context) ([]admin.Contact, error) {
 
 func (s *Service) GetMetadata(ctx context.Context) (*admin.Metadata, error) {
 	return s.repo.GetMetadata(ctx)
+}
+
+// GetStats возвращает детальную статистику для дашборда админки.
+func (s *Service) GetStats(ctx context.Context) (*admin.Stats, error) {
+	return s.repo.GetStats(ctx)
 }

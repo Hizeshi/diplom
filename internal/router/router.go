@@ -7,22 +7,21 @@ import (
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/time/rate"
 
-	adminhandler         "iq-home/backend/internal/handler/admin"
-	chathandler          "iq-home/backend/internal/handler/chat"
-	compatibilityhandler "iq-home/backend/internal/handler/compatibility"
-	contacthandler       "iq-home/backend/internal/handler/contact"
-	describehandler      "iq-home/backend/internal/handler/describe"
-	"iq-home/backend/internal/handler/health"
-	paymenthandler       "iq-home/backend/internal/handler/payment"
-	producthandler       "iq-home/backend/internal/handler/product"
-	productimagehandler  "iq-home/backend/internal/handler/productimage"
-	productimporthandler "iq-home/backend/internal/handler/productimport"
-	quotehandler         "iq-home/backend/internal/handler/quote"
-	telegramhandler      "iq-home/backend/internal/handler/telegram"
-	translatehandler     "iq-home/backend/internal/handler/translate"
-	userhandler          "iq-home/backend/internal/handler/user"
-	vectorizehandler     "iq-home/backend/internal/handler/vectorize"
 	"iq-home/backend/internal/config"
+	adminhandler "iq-home/backend/internal/handler/admin"
+	chathandler "iq-home/backend/internal/handler/chat"
+	contacthandler "iq-home/backend/internal/handler/contact"
+	describehandler "iq-home/backend/internal/handler/describe"
+	"iq-home/backend/internal/handler/health"
+	paymenthandler "iq-home/backend/internal/handler/payment"
+	producthandler "iq-home/backend/internal/handler/product"
+	productimagehandler "iq-home/backend/internal/handler/productimage"
+	productimporthandler "iq-home/backend/internal/handler/productimport"
+	quotehandler "iq-home/backend/internal/handler/quote"
+	telegramhandler "iq-home/backend/internal/handler/telegram"
+	translatehandler "iq-home/backend/internal/handler/translate"
+	userhandler "iq-home/backend/internal/handler/user"
+	vectorizehandler "iq-home/backend/internal/handler/vectorize"
 	"iq-home/backend/internal/middleware"
 )
 
@@ -40,7 +39,6 @@ type Handlers struct {
 	Telegram      *telegramhandler.Handler
 	Vectorize     *vectorizehandler.Handler
 	Describe      *describehandler.Handler
-	Compatibility *compatibilityhandler.Handler
 	Translate     *translatehandler.Handler
 
 	// SupabaseAuth is the middleware applied to /api/user/* routes.
@@ -101,8 +99,6 @@ func New(cfg *config.Config, log *slog.Logger, h Handlers) http.Handler {
 			r.Get("/orders", h.User.GetOrders)
 			r.Get("/orders/{id}", h.User.GetOrderDetail)
 
-			r.Get("/cart/compatibility", h.Compatibility.Check)
-
 			r.Post("/checkout", h.User.Checkout)
 			r.Get("/session", h.User.GetSession)
 
@@ -156,6 +152,7 @@ func New(cfg *config.Config, log *slog.Logger, h Handlers) http.Handler {
 
 			r.Get("/contacts", h.Admin.ListContacts)
 			r.Get("/metadata", h.Admin.GetMetadata)
+			r.Get("/stats", h.Admin.GetStats)
 		})
 	})
 

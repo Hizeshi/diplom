@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"path/filepath"
+	"strings"
 
 	"iq-home/backend/internal/domain/chat"
 	"iq-home/backend/internal/middleware"
@@ -126,8 +128,8 @@ func (h *Handler) Media(w http.ResponseWriter, r *http.Request) {
 	msgType := r.FormValue("message_type")
 	platform := r.FormValue("platform")
 
-	if sessionID == "" || msgType == "" {
-		respond.BadRequest(w, "session_id and message_type are required")
+	if sessionID == "" {
+		respond.BadRequest(w, "session_id is required")
 		return
 	}
 
@@ -137,6 +139,14 @@ func (h *Handler) Media(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
+
+	mimeType := header.Header.Get("Content-Type")
+
+	// message_type is optional: web clients send only the file, so infer it from
+	// the MIME type (or filename extension). Falls back to "document".
+	if msgType == "" {
+		msgType = inferMessageType(mimeType, header.Filename)
+	}
 
 	data, err := io.ReadAll(file)
 	if err != nil {
@@ -151,7 +161,7 @@ func (h *Handler) Media(w http.ResponseWriter, r *http.Request) {
 		MessageType: msgType,
 		Data:        data,
 		Filename:    header.Filename,
-		MimeType:    header.Header.Get("Content-Type"),
+		MimeType:    mimeType,
 	}
 
 	resp, err := h.svc.ProcessMedia(r.Context(), req)
@@ -160,4 +170,25 @@ func (h *Handler) Media(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond.OK(w, resp)
+}
+
+// inferMessageType maps a file's MIME type (or filename extension as a fallback)
+// to one of the types ProcessMedia understands: "photo", "voice" or "document".
+// Web clients upload only the file without an explicit message_type field.
+func inferMessageType(mimeType, filename string) string {
+	switch mt := strings.ToLower(strings.TrimSpace(mimeType)); {
+	case strings.HasPrefix(mt, "image/"):
+		return "photo"
+	case strings.HasPrefix(mt, "audio/"):
+		return "voice"
+	}
+
+	switch strings.ToLower(filepath.Ext(filename)) {
+	case ".jpg", ".jpeg", ".png", ".webp", ".gif":
+		return "photo"
+	case ".ogg", ".oga", ".opus", ".mp3", ".wav", ".m4a":
+		return "voice"
+	default:
+		return "document"
+	}
 }

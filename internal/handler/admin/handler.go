@@ -43,6 +43,7 @@ type service interface {
 
 	ListContacts(ctx context.Context) ([]admin.Contact, error)
 	GetMetadata(ctx context.Context) (*admin.Metadata, error)
+	GetStats(ctx context.Context) (*admin.Stats, error)
 
 	ClearUserCart(ctx context.Context, userID string) error
 	ClearUserHistory(ctx context.Context, userID string) error
@@ -369,6 +370,16 @@ func (h *Handler) GetMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond.OK(w, meta)
+}
+
+// GET /api/admin/stats — детальная статистика для дашборда
+func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {
+	stats, err := h.svc.GetStats(r.Context())
+	if err != nil {
+		respond.InternalError(w)
+		return
+	}
+	respond.OK(w, stats)
 }
 
 // ─── User Data Management ─────────────────────────────────────────────────────

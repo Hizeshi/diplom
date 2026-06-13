@@ -7,7 +7,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"iq-home/backend/internal/domain/compatibility"
 	"iq-home/backend/internal/domain/product"
 	"iq-home/backend/internal/domain/user"
 )
@@ -60,46 +59,6 @@ func (r *Repository) RemoveCartItem(ctx context.Context, userID string, productI
 		return fmt.Errorf("userrepo: remove cart item: %w", err)
 	}
 	return nil
-}
-
-// GetCartForCompatibility returns cart items enriched with product_type,
-// configurator_type, series_id, and series name — fields needed for the
-// AI compatibility check but not included in the regular cart response.
-func (r *Repository) GetCartForCompatibility(ctx context.Context, userID string) ([]compatibility.CartItem, error) {
-	const q = `
-		SELECT ci.product_id,
-		       p.name_raw,
-		       COALESCE(p.product_type, ''),
-		       COALESCE(p.configurator_type, ''),
-		       p.series_id,
-		       COALESCE(ps.name, ''),
-		       ci.quantity
-		FROM cart_items ci
-		JOIN products p ON p.id = ci.product_id AND p.deleted_at IS NULL
-		LEFT JOIN product_series ps ON ps.id = p.series_id
-		WHERE ci.user_id = $1
-		ORDER BY ci.created_at DESC`
-
-	rows, err := r.db.Query(ctx, q, userID)
-	if err != nil {
-		return nil, fmt.Errorf("userrepo: get cart for compatibility: %w", err)
-	}
-	defer rows.Close()
-
-	var items []compatibility.CartItem
-	for rows.Next() {
-		var it compatibility.CartItem
-		if err := rows.Scan(
-			&it.ProductID, &it.Name,
-			&it.ProductType, &it.ConfiguratorType,
-			&it.SeriesID, &it.SeriesName,
-			&it.Quantity,
-		); err != nil {
-			return nil, fmt.Errorf("userrepo: scan cart compatibility: %w", err)
-		}
-		items = append(items, it)
-	}
-	return items, rows.Err()
 }
 
 // ─── Favorites ───────────────────────────────────────────────────────────────

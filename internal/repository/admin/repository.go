@@ -554,6 +554,127 @@ func (r *Repository) GetMetadata(ctx context.Context) (*admin.Metadata, error) {
 	return m, nil
 }
 
+// GetStats собирает детальную статистику для дашборда админки.
+func (r *Repository) GetStats(ctx context.Context) (*admin.Stats, error) {
+	s := &admin.Stats{}
+
+	err := r.db.QueryRow(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM products WHERE deleted_at IS NULL),
+			(SELECT COUNT(*) FROM products WHERE deleted_at IS NULL AND is_active = true),
+			(SELECT COUNT(*) FROM products p WHERE p.deleted_at IS NULL
+				AND NOT EXISTS (SELECT 1 FROM product_images pi WHERE pi.product_id = p.id)),
+			(SELECT COUNT(*) FROM products WHERE deleted_at IS NULL AND is_active = true AND COALESCE(stock, 0) <= 5),
+			(SELECT COUNT(*) FROM profiles),
+			(SELECT COUNT(*) FROM profiles WHERE created_at >= now() - INTERVAL '30 days'),
+			(SELECT COUNT(*) FROM orders),
+			(SELECT COUNT(*) FROM orders WHERE created_at >= now() - INTERVAL '30 days'),
+			(SELECT COALESCE(SUM(total_amount), 0) FROM orders),
+			(SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE payment_status = 'success'),
+			(SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE created_at >= now() - INTERVAL '30 days'),
+			(SELECT COALESCE(AVG(total_amount), 0) FROM orders),
+			(SELECT COUNT(*) FROM chat_sessions),
+			(SELECT COUNT(*) FROM chat_sessions WHERE updated_at >= now() - INTERVAL '7 days'),
+			(SELECT COUNT(*) FROM chat_messages),
+			(SELECT COUNT(*) FROM chat_sessions WHERE is_human_mode = true),
+			(SELECT COUNT(*) FROM contact_requests),
+			(SELECT COUNT(*) FROM contact_requests WHERE status = 'new'),
+			(SELECT COUNT(*) FROM sales_knowledge)
+	`).Scan(
+		&s.ProductsTotal, &s.ProductsActive, &s.ProductsNoImages, &s.ProductsLowStock,
+		&s.UsersTotal, &s.UsersNew30d,
+		&s.OrdersTotal, &s.Orders30d,
+		&s.RevenueTotal, &s.RevenuePaid, &s.Revenue30d, &s.AvgOrderValue,
+		&s.ChatSessionsTotal, &s.ChatSessions7d, &s.ChatMessagesTotal, &s.HumanModeActive,
+		&s.ContactsTotal, &s.ContactsNew, &s.KnowledgeCount,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("adminrepo: stats totals: %w", err)
+	}
+
+	s.OrdersByStatus, err = r.fetchStatusCounts(ctx,
+		`SELECT status, COUNT(*) FROM orders GROUP BY status ORDER BY COUNT(*) DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("adminrepo: stats by status: %w", err)
+	}
+
+	s.PaymentMethods, err = r.fetchStatusCounts(ctx,
+		`SELECT payment_method, COUNT(*) FROM orders GROUP BY payment_method ORDER BY COUNT(*) DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("adminrepo: stats payment methods: %w", err)
+	}
+
+	rows, err := r.db.Query(ctx, `
+		SELECT d::date::text,
+		       COUNT(o.id),
+		       COALESCE(SUM(o.total_amount), 0)
+		FROM generate_series(CURRENT_DATE - INTERVAL '13 days', CURRENT_DATE, '1 day') d
+		LEFT JOIN orders o ON o.created_at::date = d::date
+		GROUP BY d
+		ORDER BY d`)
+	if err != nil {
+		return nil, fmt.Errorf("adminrepo: stats daily: %w", err)
+	}
+	defer rows.Close()
+	s.OrdersDaily = []admin.DailyOrders{}
+	for rows.Next() {
+		var d admin.DailyOrders
+		if err := rows.Scan(&d.Date, &d.Count, &d.Revenue); err != nil {
+			return nil, fmt.Errorf("adminrepo: stats daily scan: %w", err)
+		}
+		s.OrdersDaily = append(s.OrdersDaily, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("adminrepo: stats daily rows: %w", err)
+	}
+
+	topRows, err := r.db.Query(ctx, `
+		SELECT COALESCE(oi.product_id, 0),
+		       COALESCE(oi.product_name, '—'),
+		       COALESCE(SUM(oi.quantity), 0),
+		       COALESCE(SUM(oi.price_at_purchase * oi.quantity), 0)
+		FROM order_items oi
+		JOIN orders o ON o.id = oi.order_id AND o.status <> 'cancelled'
+		GROUP BY oi.product_id, oi.product_name
+		ORDER BY SUM(oi.price_at_purchase * oi.quantity) DESC NULLS LAST
+		LIMIT 5`)
+	if err != nil {
+		return nil, fmt.Errorf("adminrepo: stats top products: %w", err)
+	}
+	defer topRows.Close()
+	s.TopProducts = []admin.TopProduct{}
+	for topRows.Next() {
+		var t admin.TopProduct
+		if err := topRows.Scan(&t.ProductID, &t.Name, &t.Quantity, &t.Revenue); err != nil {
+			return nil, fmt.Errorf("adminrepo: stats top scan: %w", err)
+		}
+		s.TopProducts = append(s.TopProducts, t)
+	}
+	if err := topRows.Err(); err != nil {
+		return nil, fmt.Errorf("adminrepo: stats top rows: %w", err)
+	}
+
+	return s, nil
+}
+
+func (r *Repository) fetchStatusCounts(ctx context.Context, q string) ([]admin.StatusCount, error) {
+	rows, err := r.db.Query(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []admin.StatusCount{}
+	for rows.Next() {
+		var sc admin.StatusCount
+		if err := rows.Scan(&sc.Status, &sc.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, sc)
+	}
+	return out, rows.Err()
+}
+
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 func (r *Repository) fetchOptions(ctx context.Context, q string) ([]admin.Option, error) {
