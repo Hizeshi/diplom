@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"iq-home/backend/internal/domain/chat"
 	"iq-home/backend/internal/domain/product"
+	"iq-home/backend/internal/domain/quote"
 )
 
 // ─── Dependency interfaces ────────────────────────────────────────────────────
@@ -23,10 +25,13 @@ type chatRepo interface {
 	GetPublicHistory(ctx context.Context, sessionID, tokenHash string, authUserID *string) ([]chat.PublicMessage, error)
 	SaveMessage(ctx context.Context, sessionID, role, content, senderType, msgType string, meta map[string]any, filePath string) error
 	SearchKnowledge(ctx context.Context, embedding []float32, threshold float64, limit int, topicFilter string) ([]chat.KnowledgeMatch, error)
+	SetHumanMode(ctx context.Context, sessionID string, enabled bool, until *time.Time) error
+	TrackOffTopic(ctx context.Context, sessionID string, reset bool) (int, error)
 }
 
 type productSearcher interface {
 	Search(ctx context.Context, params product.SearchParams, embedding []float32) (*product.SearchResult, error)
+	GetByIDs(ctx context.Context, ids []int64) ([]chat.ProductMatch, error)
 }
 
 type embedder interface {
@@ -46,11 +51,23 @@ type fileStore interface {
 	Upload(ctx context.Context, bucket, path string, data []byte, contentType string) (string, error)
 }
 
+type userContextRepo interface {
+	GetContextHistory(ctx context.Context, userID string, limit int) ([]chat.ContextProduct, error)
+	GetContextFavorites(ctx context.Context, userID string, limit int) ([]chat.ContextProduct, error)
+	GetPopularProducts(ctx context.Context, limit int) ([]chat.ContextProduct, error)
+}
+
+type quoteGenerator interface {
+	Generate(ctx context.Context, req quote.Request) (*quote.Response, error)
+}
+
 // ─── Service ─────────────────────────────────────────────────────────────────
 
 type Service struct {
 	repo      chatRepo
 	products  productSearcher
+	userCtx   userContextRepo
+	quotes    quoteGenerator
 	embedder  embedder
 	llm       llm
 	parser    docParser
@@ -69,6 +86,8 @@ type Config struct {
 func New(
 	repo chatRepo,
 	products productSearcher,
+	userCtx userContextRepo,
+	quotes quoteGenerator,
 	embedder embedder,
 	llm llm,
 	parser docParser,
@@ -79,6 +98,8 @@ func New(
 	return &Service{
 		repo:     repo,
 		products: products,
+		userCtx:  userCtx,
+		quotes:   quotes,
 		embedder: embedder,
 		llm:      llm,
 		parser:   parser,
@@ -126,9 +147,33 @@ func (s *Service) HandleMessage(ctx context.Context, req chat.ChatRequest) (*cha
 		return nil, fmt.Errorf("chat: get session: %w", err)
 	}
 	if session != nil && session.IsHumanMode {
-		_ = s.repo.SaveMessage(ctx, req.SessionID, "user", req.Message, "user", "text", nil, "")
-		return &chat.ChatResponse{Answer: "", SessionToken: rawToken}, nil
+		// Auto-disable if the cooldown period has passed.
+		if session.AutoHumanUntil != nil && time.Now().After(*session.AutoHumanUntil) {
+			_ = s.repo.SetHumanMode(ctx, req.SessionID, false, nil)
+			_, _ = s.repo.TrackOffTopic(ctx, req.SessionID, true)
+		} else {
+			_ = s.repo.SaveMessage(ctx, req.SessionID, "user", req.Message, "user", "text", nil, "")
+			return &chat.ChatResponse{Answer: "", SessionToken: rawToken}, nil
+		}
 	}
+
+	// 3b. Off-topic detection — block and track consecutive attempts.
+	if isOffTopic(req.Message) {
+		count, _ := s.repo.TrackOffTopic(ctx, req.SessionID, false)
+		if count >= 3 {
+			until := time.Now().Add(10 * time.Minute)
+			_ = s.repo.SetHumanMode(ctx, req.SessionID, true, &until)
+		}
+		userMeta := req.MetaData
+		if userMeta == nil {
+			userMeta = map[string]any{}
+		}
+		_ = s.repo.SaveMessage(ctx, req.SessionID, "user", req.Message, "user", "text", userMeta, "")
+		_ = s.repo.SaveMessage(ctx, req.SessionID, "assistant", offTopicReply, "assistant", "text", map[string]any{}, "")
+		return &chat.ChatResponse{Answer: offTopicReply, SessionToken: rawToken}, nil
+	}
+	// On-topic — reset consecutive off-topic counter.
+	_, _ = s.repo.TrackOffTopic(ctx, req.SessionID, true)
 
 	// 4. Short-circuit for ping.
 	if isPing(req.Message) {
@@ -168,13 +213,74 @@ func (s *Service) HandleMessage(ctx context.Context, req chat.ChatRequest) (*cha
 		knowledgeItems, _ = s.repo.SearchKnowledge(ctx, embedding, 0.65, 3, req.TopicFilter)
 	}
 
-	// 8. Build prompt and generate response.
-	answer, err := s.generateResponse(ctx, req.Message, history, productMatches, knowledgeItems)
+	// 8. When КП is requested, recover the products discussed in recent history
+	//    and prepend them so the prompt contains the exact items the user wants.
+	if isKPRequest(req.Message) && len(productMatches) < matchCount {
+		if histIDs := extractProductIDsFromHistory(history); len(histIDs) > 0 {
+			histProducts, err := s.products.GetByIDs(ctx, histIDs)
+			if err != nil {
+				s.log.Warn("chat: get history products failed", "err", err)
+			} else {
+				// Merge: history products first, then de-duplicate with current search results.
+				seen := make(map[int64]bool, len(histProducts))
+				for _, p := range histProducts {
+					seen[p.ID] = true
+				}
+				for _, p := range productMatches {
+					if !seen[p.ID] {
+						histProducts = append(histProducts, p)
+						seen[p.ID] = true
+					}
+				}
+				productMatches = histProducts
+			}
+		}
+	}
+
+	// 8b. Load user context for KP enrichment when the message is KP-related.
+	var userCtxData chat.UserContext
+	if shouldEnrichWithUserContext(req.Message) {
+		if req.AuthUserID != nil {
+			if h, err := s.userCtx.GetContextHistory(ctx, *req.AuthUserID, 8); err == nil {
+				userCtxData.History = h
+			}
+			if f, err := s.userCtx.GetContextFavorites(ctx, *req.AuthUserID, 8); err == nil {
+				userCtxData.Favorites = f
+			}
+		}
+		if p, err := s.userCtx.GetPopularProducts(ctx, 8); err == nil {
+			userCtxData.Popular = p
+		}
+	}
+
+	// 9. Build prompt and generate response.
+	answer, err := s.generateResponse(ctx, req.Message, history, productMatches, knowledgeItems, userCtxData)
 	if err != nil {
 		return nil, fmt.Errorf("chat: generate: %w", err)
 	}
 
-	// 9. Save user message and assistant response.
+	// 9b. If this is a КП request with known products, auto-generate the PDF.
+	var quoteURL string
+	if isKPRequest(req.Message) && len(productMatches) > 0 {
+		qty := extractQuantity(req.Message)
+		items := make([]quote.Item, 0, len(productMatches))
+		for _, p := range productMatches {
+			article, _ := p.Metadata["article"].(string)
+			items = append(items, quote.Item{
+				Name:     p.Name,
+				Article:  article,
+				Quantity: qty,
+				Price:    p.Price,
+			})
+		}
+		if resp, qerr := s.quotes.Generate(ctx, quote.Request{Items: items}); qerr != nil {
+			s.log.Warn("chat: auto-generate quote failed", "err", qerr)
+		} else {
+			quoteURL = resp.URL
+		}
+	}
+
+	// 10. Save user message and assistant response.
 	msgType := req.MessageType
 	if msgType == "" {
 		msgType = "text"
@@ -187,6 +293,16 @@ func (s *Service) HandleMessage(ctx context.Context, req chat.ChatRequest) (*cha
 		s.log.Warn("chat: save user message failed", "session", req.SessionID, "err", err)
 	}
 	assistantMeta := map[string]any{"products_found": len(productMatches)}
+	if len(productMatches) > 0 {
+		ids := make([]int64, len(productMatches))
+		for i, p := range productMatches {
+			ids[i] = p.ID
+		}
+		assistantMeta["product_ids"] = ids
+	}
+	if quoteURL != "" {
+		assistantMeta["quote_url"] = quoteURL
+	}
 	if err := s.repo.SaveMessage(ctx, req.SessionID, "assistant", answer, "assistant", "text", assistantMeta, ""); err != nil {
 		s.log.Warn("chat: save assistant message failed", "session", req.SessionID, "err", err)
 	}
@@ -194,6 +310,7 @@ func (s *Service) HandleMessage(ctx context.Context, req chat.ChatRequest) (*cha
 	return &chat.ChatResponse{
 		Answer:       answer,
 		Products:     productMatches,
+		QuoteURL:     quoteURL,
 		SessionToken: rawToken,
 	}, nil
 }

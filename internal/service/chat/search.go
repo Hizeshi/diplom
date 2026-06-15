@@ -81,16 +81,17 @@ func toProductMatches(result *product.SearchResult) []chat.ProductMatch {
 			"series": item.SeriesName,
 			"type":   item.Type,
 		}
-		if len(item.Images) > 0 {
-			meta["image"] = item.Images[0].URL
-		}
-		matches = append(matches, chat.ProductMatch{
+		m := chat.ProductMatch{
 			ID:       item.ID,
 			Name:     item.Name,
 			Price:    item.Price,
 			Score:    item.Score,
 			Metadata: meta,
-		})
+		}
+		if len(item.Images) > 0 {
+			m.ImageURL = item.Images[0].URL
+		}
+		matches = append(matches, m)
 	}
 	return matches
 }

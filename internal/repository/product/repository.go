@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"iq-home/backend/internal/domain/chat"
 	"iq-home/backend/internal/domain/product"
 )
 
@@ -114,6 +115,43 @@ func (r *Repository) imagesByProductID(ctx context.Context, productID int64) ([]
 		images = append(images, img)
 	}
 	return images, rows.Err()
+}
+
+// ─── GetByIDs ────────────────────────────────────────────────────────────────
+
+// GetByIDs fetches a lightweight representation of products by their IDs,
+// suitable for injecting into the chat prompt context.
+func (r *Repository) GetByIDs(ctx context.Context, ids []int64) ([]chat.ProductMatch, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT p.id, p.name_raw, COALESCE(p.article, ''), COALESCE(p.price, 0),
+		       COALESCE(b.name, ''), COALESCE(c.name, ''), COALESCE(s.name, '')
+		FROM products p
+		LEFT JOIN brands b         ON b.id = p.brand_id
+		LEFT JOIN colors c         ON c.id = p.color_id
+		LEFT JOIN product_series s ON s.id = p.series_id
+		WHERE p.id = ANY($1) AND p.deleted_at IS NULL`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("productrepo: get by ids: %w", err)
+	}
+	defer rows.Close()
+
+	var matches []chat.ProductMatch
+	for rows.Next() {
+		var (
+			m                    chat.ProductMatch
+			article              string
+			brand, color, series string
+		)
+		if err := rows.Scan(&m.ID, &m.Name, &article, &m.Price, &brand, &color, &series); err != nil {
+			return nil, fmt.Errorf("productrepo: get by ids scan: %w", err)
+		}
+		m.Metadata = map[string]any{"brand": brand, "color": color, "series": series, "article": article}
+		matches = append(matches, m)
+	}
+	return matches, rows.Err()
 }
 
 // ─── Search ──────────────────────────────────────────────────────────────────

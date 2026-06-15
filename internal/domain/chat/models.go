@@ -10,11 +10,13 @@ var ErrSessionForbidden = errors.New("chat: session access denied")
 // ─── Session ─────────────────────────────────────────────────────────────────
 
 type Session struct {
-	SessionID   string
-	AuthUserID  *string
-	UserID      string
-	Platform    string
-	IsHumanMode bool
+	SessionID      string
+	AuthUserID     *string
+	UserID         string
+	Platform       string
+	IsHumanMode    bool
+	AutoHumanUntil *time.Time // non-nil = human mode was auto-enabled; reset when past
+	OffTopicCount  int        // consecutive off-topic messages
 }
 
 // ─── Messages ────────────────────────────────────────────────────────────────
@@ -58,7 +60,7 @@ type ChatRequest struct {
 type ChatResponse struct {
 	Answer       string         `json:"answer"`
 	Products     []ProductMatch `json:"products,omitempty"`
-	QuoteURL     string         `json:"quote_url,omitempty"`
+	QuoteURL     string         `json:"kp_pdf_url,omitempty"`
 	SessionToken string         `json:"session_token,omitempty"` // returned on new session creation
 }
 
@@ -69,6 +71,7 @@ type ProductMatch struct {
 	Name       string         `json:"name"`
 	Price      float64        `json:"price"`
 	Score      float64        `json:"score"`
+	ImageURL   string         `json:"image_url,omitempty"`
 	Metadata   map[string]any `json:"metadata,omitempty"`
 }
 
@@ -77,6 +80,22 @@ type KnowledgeMatch struct {
 	Content    string         `json:"content"`
 	Metadata   map[string]any `json:"metadata,omitempty"`
 	Similarity float64        `json:"similarity"`
+}
+
+// ─── User context for KP enrichment ─────────────────────────────────────────
+
+// ContextProduct is a product from the user's history, favorites, or the
+// global popular list. Used to enrich the KP prompt.
+type ContextProduct struct {
+	ID    int64
+	Name  string
+	Price float64
+}
+
+type UserContext struct {
+	History   []ContextProduct
+	Favorites []ContextProduct
+	Popular   []ContextProduct
 }
 
 // ─── Media ───────────────────────────────────────────────────────────────────

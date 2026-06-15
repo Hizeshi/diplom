@@ -1,6 +1,11 @@
 package user
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+var ErrProductNotFound = errors.New("product not found")
 
 // ─── Cart ────────────────────────────────────────────────────────────────────
 

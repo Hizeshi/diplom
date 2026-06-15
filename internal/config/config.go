@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 type Config struct {
@@ -36,8 +37,7 @@ type Config struct {
 	TelegramBotToken      string
 	TelegramWebhookSecret string
 	TelegramBaseURL       string
-	ManagerChatID         string
-	DirectorChatID        string
+	ManagerChatIDs        []string
 
 	// CORS
 	CORSAllowOrigin string
@@ -72,10 +72,9 @@ func Load() (*Config, error) {
 		SupabaseURL:            os.Getenv("SUPABASE_URL"),
 		SupabaseServiceRoleKey: os.Getenv("SUPABASE_SERVICE_ROLE_KEY"),
 		OpenAIAPIKey:           os.Getenv("OPENAI_API_KEY"),
-		TelegramBotToken:       os.Getenv("TELEGRAM_BOT_TOKEN"),
-		TelegramWebhookSecret:  os.Getenv("TELEGRAM_WEBHOOK_SECRET"),
-		ManagerChatID:          os.Getenv("MANAGER_CHAT_ID"),
-		DirectorChatID:         os.Getenv("DIRECTOR_CHAT_ID"),
+		TelegramBotToken:      os.Getenv("TELEGRAM_BOT_TOKEN"),
+		TelegramWebhookSecret: os.Getenv("TELEGRAM_WEBHOOK_SECRET"),
+		ManagerChatIDs:        parseIDs(os.Getenv("MANAGER_CHAT_IDS")),
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -117,4 +116,14 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func parseIDs(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if id := strings.TrimSpace(p); id != "" {
+			out = append(out, id)
+		}
+	}
+	return out
 }

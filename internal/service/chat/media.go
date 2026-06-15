@@ -31,10 +31,21 @@ func (s *Service) ProcessMedia(ctx context.Context, req chat.MediaRequest) (*cha
 		return nil, fmt.Errorf("media: process %s: %w", req.MessageType, err)
 	}
 
-	// Upload attachment to storage using a safe, collision-free path.
+	// Upload attachment to storage.
+	// file_path stores only the relative object key (not the full URL), because
+	// the frontend constructs the public URL itself. The full URL goes into
+	// meta.attachment_url so the frontend can use it directly without re-building it.
+	meta := map[string]any{
+		"message_type":  req.MessageType,
+		"original_text": searchMessage,
+	}
 	if len(req.Data) > 0 {
 		objectPath := fmt.Sprintf("%s/%s", req.SessionID, upload.UniqueFilename(req.Filename))
-		filePath, _ = s.store.Upload(ctx, "chat-attachments", objectPath, req.Data, req.MimeType)
+		if publicURL, uploadErr := s.store.Upload(ctx, "chat-attachments", objectPath, req.Data, req.MimeType); uploadErr == nil {
+			filePath = objectPath
+			meta["attachment_url"] = publicURL
+			meta["attachment_name"] = req.Filename
+		}
 	}
 
 	// Forward to main chat flow. HandleMessage is responsible for saving both
@@ -50,10 +61,7 @@ func (s *Service) ProcessMedia(ctx context.Context, req chat.MediaRequest) (*cha
 		Trusted:     true, // media endpoint is always /v1 (internal)
 		MessageType: req.MessageType,
 		FilePath:    filePath,
-		MetaData: map[string]any{
-			"message_type":  req.MessageType,
-			"original_text": searchMessage,
-		},
+		MetaData:    meta,
 	}
 
 	return s.HandleMessage(ctx, chatReq)
@@ -63,6 +71,10 @@ func (s *Service) ProcessMedia(ctx context.Context, req chat.MediaRequest) (*cha
 func (s *Service) processVoice(ctx context.Context, data []byte, filename string) (string, error) {
 	if filename == "" {
 		filename = "audio.ogg"
+	}
+	// Whisper rejects .oga but accepts .ogg — they are the same OGG container.
+	if strings.HasSuffix(strings.ToLower(filename), ".oga") {
+		filename = filename[:len(filename)-4] + ".ogg"
 	}
 	text, err := s.llm.Transcribe(ctx, s.cfg.OpenAITranscribeModel, data, filename)
 	if err != nil {

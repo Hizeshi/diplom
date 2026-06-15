@@ -2,11 +2,14 @@ package userrepo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"iq-home/backend/internal/domain/chat"
 	"iq-home/backend/internal/domain/product"
 	"iq-home/backend/internal/domain/user"
 )
@@ -46,6 +49,10 @@ func (r *Repository) UpsertCartItem(ctx context.Context, userID string, productI
 
 	_, err := r.db.Exec(ctx, q, userID, productID, quantity)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return user.ErrProductNotFound
+		}
 		return fmt.Errorf("userrepo: upsert cart: %w", err)
 	}
 	return nil
@@ -116,12 +123,15 @@ func (r *Repository) ToggleFavorite(ctx context.Context, userID string, productI
 		return "removed", nil
 	}
 
-	_, err = r.db.Exec(ctx,
+	tag, err := r.db.Exec(ctx,
 		`INSERT INTO favorites (user_id, product_id)
 		 SELECT $1::uuid, $2::bigint WHERE EXISTS (SELECT 1 FROM products WHERE id=$2 AND deleted_at IS NULL)`,
 		userID, productID)
 	if err != nil {
 		return "", fmt.Errorf("userrepo: add favorite: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return "", user.ErrProductNotFound
 	}
 	return "added", nil
 }
@@ -475,6 +485,65 @@ func (r *Repository) ClearAvatar(ctx context.Context, userID string) error {
 		return fmt.Errorf("userrepo: clear avatar: %w", err)
 	}
 	return nil
+}
+
+// ─── helpers ─────────────────────────────────────────────────────────────────
+
+// ─── KP context ──────────────────────────────────────────────────────────────
+
+// GetContextHistory returns the N most recently viewed products for a user.
+func (r *Repository) GetContextHistory(ctx context.Context, userID string, limit int) ([]chat.ContextProduct, error) {
+	const q = `
+		SELECT pv.product_id, p.name_raw, COALESCE(p.price, 0)
+		FROM product_views pv
+		JOIN products p ON p.id = pv.product_id AND p.deleted_at IS NULL
+		WHERE pv.user_id = $1
+		ORDER BY pv.viewed_at DESC
+		LIMIT $2`
+	return scanContextProducts(r.db.Query(ctx, q, userID, limit))
+}
+
+// GetContextFavorites returns the N most recently favorited products for a user.
+func (r *Repository) GetContextFavorites(ctx context.Context, userID string, limit int) ([]chat.ContextProduct, error) {
+	const q = `
+		SELECT f.product_id, p.name_raw, COALESCE(p.price, 0)
+		FROM favorites f
+		JOIN products p ON p.id = f.product_id AND p.deleted_at IS NULL
+		WHERE f.user_id = $1
+		ORDER BY f.created_at DESC
+		LIMIT $2`
+	return scanContextProducts(r.db.Query(ctx, q, userID, limit))
+}
+
+// GetPopularProducts returns the N most-viewed products across all users.
+func (r *Repository) GetPopularProducts(ctx context.Context, limit int) ([]chat.ContextProduct, error) {
+	const q = `
+		SELECT p.id, p.name_raw, COALESCE(p.price, 0)
+		FROM products p
+		JOIN (
+			SELECT product_id, COUNT(*) AS views
+			FROM product_views GROUP BY product_id
+		) pv ON pv.product_id = p.id
+		WHERE p.deleted_at IS NULL AND p.is_active = true
+		ORDER BY pv.views DESC
+		LIMIT $1`
+	return scanContextProducts(r.db.Query(ctx, q, limit))
+}
+
+func scanContextProducts(rows pgx.Rows, err error) ([]chat.ContextProduct, error) {
+	if err != nil {
+		return nil, fmt.Errorf("userrepo: context products: %w", err)
+	}
+	defer rows.Close()
+	var items []chat.ContextProduct
+	for rows.Next() {
+		var p chat.ContextProduct
+		if err := rows.Scan(&p.ID, &p.Name, &p.Price); err != nil {
+			return nil, fmt.Errorf("userrepo: scan context product: %w", err)
+		}
+		items = append(items, p)
+	}
+	return items, rows.Err()
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

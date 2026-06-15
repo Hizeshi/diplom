@@ -8,6 +8,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"iq-home/backend/internal/config"
+	"iq-home/backend/pkg/respond"
 	adminhandler "iq-home/backend/internal/handler/admin"
 	chathandler "iq-home/backend/internal/handler/chat"
 	contacthandler "iq-home/backend/internal/handler/contact"
@@ -183,6 +184,13 @@ func New(cfg *config.Config, log *slog.Logger, h Handlers) http.Handler {
 		r.Post("/products/images/item", h.ProductImage.ImageAdd)
 		r.Put("/products/images/item", h.ProductImage.ImageUpdate)
 		r.Delete("/products/images/item", h.ProductImage.ImageDelete)
+	})
+
+	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		respond.NotFound(w)
+	})
+	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
+		respond.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 	})
 
 	return r

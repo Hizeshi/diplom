@@ -91,6 +91,8 @@ func New(cfg *config.Config) *App {
 	chatService := chatsvc.New(
 		chatrepo.New(db),
 		pRepo,
+		userrepo.New(db),
+		quotesvc.New(sb),
 		embedder,
 		openai.NewChatAdapter(ai),
 		tk,
@@ -112,7 +114,7 @@ func New(cfg *config.Config) *App {
 	if tg != nil {
 		contactNotifier = tg
 	}
-	contactService := contactsvc.New(contactrepo.New(db), contactNotifier, cfg.ManagerChatID)
+	contactService := contactsvc.New(contactrepo.New(db), contactNotifier, cfg.ManagerChatIDs)
 
 	// ── Payment ──────────────────────────────────────────────────────────────
 	paymentService := paymentsvc.New(paymentrepo.New(db))

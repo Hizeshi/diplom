@@ -44,6 +44,11 @@ func (h *Handler) Chat(w http.ResponseWriter, r *http.Request) {
 	if !validate.DecodeAndValidate(w, r, &body) {
 		return
 	}
+	body.Message = strings.TrimSpace(body.Message)
+	if body.Message == "" {
+		respond.BadRequest(w, "message is required")
+		return
+	}
 
 	req := chat.ChatRequest{
 		Message:      body.Message,

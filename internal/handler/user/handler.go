@@ -3,6 +3,7 @@ package userhandler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -76,8 +77,16 @@ func (h *Handler) AddToCart(w http.ResponseWriter, r *http.Request) {
 		respond.BadRequest(w, "invalid body")
 		return
 	}
+	if body.ProductID <= 0 {
+		respond.BadRequest(w, "productId is required")
+		return
+	}
 	if err := h.svc.AddToCart(r.Context(), u.ID, body.ProductID, body.Quantity); err != nil {
-		respond.BadRequest(w, err.Error())
+		if errors.Is(err, user.ErrProductNotFound) {
+			respond.NotFound(w)
+			return
+		}
+		respond.InternalError(w)
 		return
 	}
 	respond.OK(w, map[string]bool{"success": true})
@@ -102,7 +111,11 @@ func (h *Handler) UpdateCartQuantity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.svc.AddToCart(r.Context(), u.ID, productID, body.Quantity); err != nil {
-		respond.BadRequest(w, err.Error())
+		if errors.Is(err, user.ErrProductNotFound) {
+			respond.NotFound(w)
+			return
+		}
+		respond.InternalError(w)
 		return
 	}
 	respond.OK(w, map[string]bool{"success": true})
@@ -165,6 +178,10 @@ func (h *Handler) ToggleFavorite(w http.ResponseWriter, r *http.Request) {
 	}
 	action, err := h.svc.ToggleFavorite(r.Context(), u.ID, body.ProductID)
 	if err != nil {
+		if errors.Is(err, user.ErrProductNotFound) {
+			respond.NotFound(w)
+			return
+		}
 		slog.Error("toggle favorite failed", "user_id", u.ID, "product_id", body.ProductID, "err", err)
 		respond.InternalError(w)
 		return

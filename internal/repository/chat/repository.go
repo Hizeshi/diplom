@@ -58,17 +58,20 @@ func (r *Repository) EnsureSession(
 	}
 
 	if err == pgx.ErrNoRows {
-		// Create new session.
-		_, insertErr := r.db.Exec(ctx,
+		// Create new session. ON CONFLICT guards against a race where two
+		// concurrent requests both see ErrNoRows and both attempt the insert.
+		tag, insertErr := r.db.Exec(ctx,
 			`INSERT INTO chat_sessions
 			   (session_id, user_id, platform, auth_user_id, session_token_hash, is_human_mode)
-			 VALUES ($1, $2, $3, $4, $5, false)`,
+			 VALUES ($1, $2, $3, $4, $5, false)
+			 ON CONFLICT (session_id) DO NOTHING`,
 			sessionID, userID, platform, authUserID, tokenHash,
 		)
 		if insertErr != nil {
 			return false, fmt.Errorf("chatrepo: ensure session insert: %w", insertErr)
 		}
-		return true, nil
+		// RowsAffected == 0 means another goroutine won the race — treat as existing.
+		return tag.RowsAffected() == 1, nil
 	}
 
 	// Session exists — enforce ownership unless caller is trusted.
@@ -99,9 +102,11 @@ func (r *Repository) EnsureSession(
 func (r *Repository) GetSession(ctx context.Context, sessionID string) (*chat.Session, error) {
 	var s chat.Session
 	err := r.db.QueryRow(ctx,
-		`SELECT session_id, auth_user_id, COALESCE(user_id,''), platform, is_human_mode
+		`SELECT session_id, auth_user_id, COALESCE(user_id,''), platform, is_human_mode,
+		        auto_human_until, COALESCE(offtopic_count, 0)
 		   FROM chat_sessions WHERE session_id = $1`, sessionID).
-		Scan(&s.SessionID, &s.AuthUserID, &s.UserID, &s.Platform, &s.IsHumanMode)
+		Scan(&s.SessionID, &s.AuthUserID, &s.UserID, &s.Platform, &s.IsHumanMode,
+			&s.AutoHumanUntil, &s.OffTopicCount)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
@@ -109,6 +114,36 @@ func (r *Repository) GetSession(ctx context.Context, sessionID string) (*chat.Se
 		return nil, fmt.Errorf("chatrepo: get session: %w", err)
 	}
 	return &s, nil
+}
+
+// SetHumanMode enables or disables human mode. When enabling via auto-trigger,
+// until is non-nil and sets the auto-reset timestamp.
+func (r *Repository) SetHumanMode(ctx context.Context, sessionID string, enabled bool, until *time.Time) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE chat_sessions SET is_human_mode=$2, auto_human_until=$3, updated_at=NOW() WHERE session_id=$1`,
+		sessionID, enabled, until)
+	if err != nil {
+		return fmt.Errorf("chatrepo: set human mode: %w", err)
+	}
+	return nil
+}
+
+// TrackOffTopic increments the off-topic counter and returns the new count.
+// Also resets the counter to 0 when reset=true.
+func (r *Repository) TrackOffTopic(ctx context.Context, sessionID string, reset bool) (int, error) {
+	if reset {
+		_, err := r.db.Exec(ctx,
+			`UPDATE chat_sessions SET offtopic_count=0, updated_at=NOW() WHERE session_id=$1`, sessionID)
+		return 0, err
+	}
+	var count int
+	err := r.db.QueryRow(ctx,
+		`UPDATE chat_sessions SET offtopic_count=offtopic_count+1, updated_at=NOW()
+		 WHERE session_id=$1 RETURNING offtopic_count`, sessionID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("chatrepo: track offtopic: %w", err)
+	}
+	return count, nil
 }
 
 // ─── Messages ────────────────────────────────────────────────────────────────

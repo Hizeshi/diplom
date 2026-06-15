@@ -16,13 +16,13 @@ type Notifier interface {
 }
 
 type Service struct {
-	repo      repo
-	notifier  Notifier
-	managerID string
+	repo       repo
+	notifier   Notifier
+	managerIDs []string
 }
 
-func New(repo repo, notifier Notifier, managerChatID string) *Service {
-	return &Service{repo: repo, notifier: notifier, managerID: managerChatID}
+func New(repo repo, notifier Notifier, managerChatIDs []string) *Service {
+	return &Service{repo: repo, notifier: notifier, managerIDs: managerChatIDs}
 }
 
 func (s *Service) Create(ctx context.Context, req contact.CreateRequest) error {
@@ -30,13 +30,14 @@ func (s *Service) Create(ctx context.Context, req contact.CreateRequest) error {
 		return fmt.Errorf("contact: create: %w", err)
 	}
 
-	if s.notifier != nil && s.managerID != "" {
+	if s.notifier != nil && len(s.managerIDs) > 0 {
 		text := fmt.Sprintf(
 			"📬 Новая заявка\nИмя: %s\nEmail: %s\nСообщение: %s",
 			req.Name, req.Email, req.Message,
 		)
-		// Non-fatal: best-effort notification
-		_ = s.notifier.SendMessage(ctx, s.managerID, text)
+		for _, id := range s.managerIDs {
+			_ = s.notifier.SendMessage(ctx, id, text)
+		}
 	}
 
 	return nil
