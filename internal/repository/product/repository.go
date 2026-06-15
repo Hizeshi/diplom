@@ -213,19 +213,29 @@ func (r *Repository) Search(ctx context.Context, params product.SearchParams, em
 
 	for rows.Next() {
 		var (
-			item      product.SearchItem
-			imagesRaw []byte
+			item                        product.SearchItem
+			imagesRaw                   []byte
+			brandName, colorName, seriesName string
 		)
 		if err := rows.Scan(
 			&item.ID, &item.Name, &item.Price, &imagesRaw, &item.Score,
 			&item.Type, &item.ConfiguratorType,
-			&item.BrandName, &item.ColorName, &item.SeriesName, &item.Article,
+			&brandName, &colorName, &seriesName, &item.Article,
 			&totalCount,
 		); err != nil {
 			return nil, fmt.Errorf("productrepo: search scan: %w", err)
 		}
 		if len(imagesRaw) > 0 {
 			_ = json.Unmarshal(imagesRaw, &item.Images)
+		}
+		if brandName != "" {
+			item.Brand = &product.NameRef{Name: brandName}
+		}
+		if colorName != "" {
+			item.Color = &product.NameRef{Name: colorName}
+		}
+		if seriesName != "" {
+			item.Series = &product.NameRef{Name: seriesName}
 		}
 		items = append(items, item)
 	}
@@ -280,9 +290,15 @@ func (r *Repository) localizeSearchItems(ctx context.Context, items []product.Se
 	for i := range items {
 		if d, ok := i18nByID[items[i].ID]; ok {
 			items[i].Name = product.Localize(items[i].Name, d.name, locale)
-			items[i].BrandName = product.Localize(items[i].BrandName, d.brand, locale)
-			items[i].ColorName = product.Localize(items[i].ColorName, d.color, locale)
-			items[i].SeriesName = product.Localize(items[i].SeriesName, d.series, locale)
+			if items[i].Brand != nil {
+				items[i].Brand.Name = product.Localize(items[i].Brand.Name, d.brand, locale)
+			}
+			if items[i].Color != nil {
+				items[i].Color.Name = product.Localize(items[i].Color.Name, d.color, locale)
+			}
+			if items[i].Series != nil {
+				items[i].Series.Name = product.Localize(items[i].Series.Name, d.series, locale)
+			}
 		}
 	}
 	return nil

@@ -76,9 +76,9 @@ func toProductMatches(result *product.SearchResult) []chat.ProductMatch {
 	matches := make([]chat.ProductMatch, 0, len(result.Items))
 	for _, item := range result.Items {
 		meta := map[string]any{
-			"brand":  item.BrandName,
-			"color":  item.ColorName,
-			"series": item.SeriesName,
+			"brand":  nameOf(item.Brand),
+			"color":  nameOf(item.Color),
+			"series": nameOf(item.Series),
 			"type":   item.Type,
 		}
 		m := chat.ProductMatch{
@@ -94,4 +94,11 @@ func toProductMatches(result *product.SearchResult) []chat.ProductMatch {
 		matches = append(matches, m)
 	}
 	return matches
+}
+
+func nameOf(r *product.NameRef) string {
+	if r == nil {
+		return ""
+	}
+	return r.Name
 }

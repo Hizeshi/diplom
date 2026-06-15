@@ -74,6 +74,12 @@ type Ref struct {
 	Name string
 }
 
+// NameRef is a {name} reference used for brand/color/series in search results
+// (search_products() returns names only, not IDs).
+type NameRef struct {
+	Name string `json:"name"`
+}
+
 // Image is a single product image.
 type Image struct {
 	ID   int64  `json:"id"`
@@ -106,17 +112,17 @@ type SearchResult struct {
 
 // SearchItem is one row from search_products().
 type SearchItem struct {
-	ID               int64   `json:"id"`
-	Name             string  `json:"name"`
-	Article          string  `json:"article"`
-	Price            float64 `json:"price"`
-	Score            float64 `json:"score"`
-	Type             string  `json:"type"`
-	ConfiguratorType string  `json:"configurator_type"`
-	BrandName        string  `json:"brand"`
-	ColorName        string  `json:"color"`
-	SeriesName       string  `json:"series"`
-	Images           []Image `json:"images"`
+	ID               int64    `json:"id"`
+	Name             string   `json:"name"`
+	Article          string   `json:"article"`
+	Price            float64  `json:"price"`
+	Score            float64  `json:"score"`
+	Type             string   `json:"type"`
+	ConfiguratorType string   `json:"configurator_type"`
+	Brand            *NameRef `json:"brand"`
+	Color            *NameRef `json:"color"`
+	Series           *NameRef `json:"series"`
+	Images           []Image  `json:"images"`
 }
 
 // ─── Filters ──────────────────────────────────────────────────────────────────
