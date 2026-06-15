@@ -194,7 +194,6 @@ type productResponse struct {
 	Color            *refResponse    `json:"color"`
 	Series           *refResponse    `json:"series"`
 	Images           []product.Image `json:"images"`
-	ModelURL         string          `json:"model_url,omitempty"`
 }
 
 type refResponse struct {
@@ -213,7 +212,6 @@ func toProductResponse(p *product.Product) productResponse {
 		Stock:            p.Stock,
 		ConfiguratorType: p.ConfiguratorType,
 		Images:           p.Images,
-		ModelURL:         p.ModelURL,
 	}
 	if p.Brand != nil {
 		resp.Brand = &refResponse{ID: p.Brand.ID, Name: p.Brand.Name}

@@ -65,7 +65,6 @@ type Product struct {
 	Color            *Ref
 	Series           *Ref
 	Images           []Image
-	ModelURL         string
 }
 
 // Ref is a generic {id, name} reference used for brand/color/series.
