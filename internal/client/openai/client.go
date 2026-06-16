@@ -9,7 +9,14 @@ import (
 	"mime/multipart"
 	"net/http"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
+
+// tracer emits spans for outbound AI calls. No-op until a global tracer
+// provider is configured. Attributes carry only the model name — never keys.
+var tracer = otel.Tracer("openai-client")
 
 type Client struct {
 	baseURL string
@@ -55,6 +62,10 @@ type CompleteOptions struct {
 
 // Complete sends messages to the chat completions API and returns the response text.
 func (c *Client) Complete(ctx context.Context, opts CompleteOptions) (string, error) {
+	ctx, span := tracer.Start(ctx, "ai.chat.completion")
+	defer span.End()
+	span.SetAttributes(attribute.String("ai.model", opts.Model))
+
 	body := map[string]any{
 		"model":    opts.Model,
 		"messages": opts.Messages,
@@ -96,6 +107,10 @@ func (c *Client) Complete(ctx context.Context, opts CompleteOptions) (string, er
 
 // Transcribe converts audio bytes to text using the Whisper API.
 func (c *Client) Transcribe(ctx context.Context, model string, audio []byte, filename string) (string, error) {
+	ctx, span := tracer.Start(ctx, "ai.transcribe")
+	defer span.End()
+	span.SetAttributes(attribute.String("ai.model", model))
+
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 
@@ -144,6 +159,10 @@ func (c *Client) Transcribe(ctx context.Context, model string, audio []byte, fil
 // Embed generates a 1024-dimensional embedding for the given text.
 // It uses the model configured via SetEmbeddingModel (default: text-embedding-3-large).
 func (c *Client) Embed(ctx context.Context, model, text string) ([]float32, error) {
+	ctx, span := tracer.Start(ctx, "ai.embed")
+	defer span.End()
+	span.SetAttributes(attribute.String("ai.model", model))
+
 	req := map[string]any{
 		"model":      model,
 		"input":      text,

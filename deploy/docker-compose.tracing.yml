@@ -1,0 +1,20 @@
+# Standalone Jaeger for local distributed tracing of the L-XOR backend.
+#
+# The backend runs on the host (via pm2), not inside this compose, so Jaeger
+# exposes its ports on the host and the app reaches it at localhost:4318.
+# Kept separate from the Supabase stack so it can be started/stopped on its own.
+#
+# Start:  docker compose -f deploy/docker-compose.tracing.yml up -d
+# UI:     http://localhost:16686  (service: l-xor-api)
+# Stop:   docker compose -f deploy/docker-compose.tracing.yml down
+
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: lxor-jaeger
+    ports:
+      - "16686:16686" # web UI (waterfall)
+      - "4318:4318"   # OTLP/HTTP trace ingest (matches OTEL_EXPORTER_OTLP_ENDPOINT)
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    restart: unless-stopped

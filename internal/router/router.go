@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/riandyrn/otelchi"
 	"golang.org/x/time/rate"
 
 	"iq-home/backend/internal/config"
@@ -48,6 +49,10 @@ type Handlers struct {
 
 func New(cfg *config.Config, log *slog.Logger, h Handlers) http.Handler {
 	r := chi.NewRouter()
+
+	// Tracing first: wrap the whole chain so each request is a root span named
+	// after its chi route pattern. No-op until a tracer provider is configured.
+	r.Use(otelchi.Middleware("l-xor-api", otelchi.WithChiRoutes(r)))
 
 	r.Use(middleware.Recovery(log))
 	r.Use(middleware.RequestID)

@@ -31,6 +31,11 @@ module.exports = {
         CORS_ALLOW_ORIGIN:         "*",
         PRODUCT_URL:               "https://your-domain.kz/products/",
         PAYMENT_BASE_URL:          "",
+        // ── Distributed tracing (optional, off by default) ──
+        // Enable to send spans to Jaeger; see docs/tracing.md.
+        TRACING_ENABLED:             "false",
+        OTEL_EXPORTER_OTLP_ENDPOINT: "localhost:4318", // bare host:port, no scheme
+        OTEL_SERVICE_NAME:           "l-xor-api",
       },
     },
   ],

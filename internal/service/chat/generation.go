@@ -270,6 +270,9 @@ func (s *Service) generateResponse(
 	knowledge []chat.KnowledgeMatch,
 	userCtx chat.UserContext,
 ) (string, error) {
+	ctx, span := tracer.Start(ctx, "rag.generate_llm")
+	defer span.End()
+
 	systemPrompt := s.buildSystemPrompt(products, knowledge, userCtx)
 
 	msgs := []LLMMessage{{Role: "system", Content: systemPrompt}}

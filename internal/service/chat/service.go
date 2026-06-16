@@ -11,10 +11,16 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel"
+
 	"iq-home/backend/internal/domain/chat"
 	"iq-home/backend/internal/domain/product"
 	"iq-home/backend/internal/domain/quote"
 )
+
+// tracer emits spans for the RAG pipeline. No-op until a global tracer
+// provider is configured by observability.InitTracer.
+var tracer = otel.Tracer("chat")
 
 // ─── Dependency interfaces ────────────────────────────────────────────────────
 
@@ -112,6 +118,9 @@ func New(
 // ─── HandleMessage ────────────────────────────────────────────────────────────
 
 func (s *Service) HandleMessage(ctx context.Context, req chat.ChatRequest) (*chat.ChatResponse, error) {
+	ctx, span := tracer.Start(ctx, "chat.handle_message")
+	defer span.End()
+
 	// 1. Determine token hash for session ownership.
 	//    Trusted callers (internal API, Telegram) skip token enforcement.
 	var rawToken string
@@ -187,7 +196,9 @@ func (s *Service) HandleMessage(ctx context.Context, req chat.ChatRequest) (*cha
 	}
 
 	// 6. Generate embedding for search.
-	embedding, err := s.embedder.Embed(ctx, req.Message)
+	embCtx, embSpan := tracer.Start(ctx, "rag.embed_query")
+	embedding, err := s.embedder.Embed(embCtx, req.Message)
+	embSpan.End()
 	if err != nil {
 		s.log.Warn("chat: embed failed, continuing without vector", "err", err)
 	}

@@ -33,7 +33,9 @@ func (s *Service) runSearch(
 
 	go func() {
 		defer wg.Done()
-		result, err := s.products.Search(ctx, product.SearchParams{
+		gctx, span := tracer.Start(ctx, "rag.search_products")
+		defer span.End()
+		result, err := s.products.Search(gctx, product.SearchParams{
 			Query:  query,
 			Limit:  matchCount,
 			Page:   1,
@@ -48,7 +50,9 @@ func (s *Service) runSearch(
 
 	go func() {
 		defer wg.Done()
-		matches, err := s.repo.SearchKnowledge(ctx, embedding, 0.65, 5, topicFilter)
+		gctx, span := tracer.Start(ctx, "rag.search_knowledge")
+		defer span.End()
+		matches, err := s.repo.SearchKnowledge(gctx, embedding, 0.65, 5, topicFilter)
 		if err != nil {
 			knowErr = err
 			return
