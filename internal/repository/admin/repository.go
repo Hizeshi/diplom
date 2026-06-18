@@ -105,10 +105,10 @@ func (r *Repository) ListProducts(ctx context.Context, search string, limit, pag
 	}
 
 	q := fmt.Sprintf(`
-		SELECT p.id, p.article, p.name_raw, COALESCE(p.product_type,''), p.price, p.stock,
+		SELECT p.id, p.article, p.name_raw, COALESCE(p.product_type,''), COALESCE(p.price,0), COALESCE(p.stock,0),
 		       COALESCE(p.description,''), p.brand_id, COALESCE(b.name,''),
 		       p.series_id, COALESCE(s.name,''), p.color_id, COALESCE(c.name,''),
-		       COALESCE(p.configurator_type,''), p.is_active, p.created_at,
+		       COALESCE(p.configurator_type,''), COALESCE(p.is_active,true), p.created_at,
 		       COUNT(*) OVER() AS total,
 		       pi.id, pi.image_url, pi.object_path
 		FROM products p
@@ -315,7 +315,7 @@ func (r *Repository) GetUserDetail(ctx context.Context, id string) (*admin.UserD
 
 	// Cart
 	rows, err = r.db.Query(ctx, `
-		SELECT ci.product_id, p.name_raw, p.price, ci.quantity
+		SELECT ci.product_id, p.name_raw, COALESCE(p.price,0), ci.quantity
 		FROM cart_items ci
 		JOIN products p ON p.id = ci.product_id
 		WHERE ci.user_id = $1`, id)
@@ -354,7 +354,7 @@ func (r *Repository) GetUserDetail(ctx context.Context, id string) (*admin.UserD
 
 	// Favorites
 	rows, err = r.db.Query(ctx, `
-		SELECT f.product_id, p.name_raw, p.price
+		SELECT f.product_id, p.name_raw, COALESCE(p.price,0)
 		FROM favorites f
 		JOIN products p ON p.id = f.product_id
 		WHERE f.user_id = $1
@@ -722,12 +722,12 @@ func (r *Repository) UpdateConfiguratorType(ctx context.Context, productID int64
 func (r *Repository) GetProduct(ctx context.Context, id int64) (*admin.Product, error) {
 	var p admin.Product
 	err := r.db.QueryRow(ctx, `
-		SELECT p.id, p.article, p.name_raw, p.product_type,
-		       p.price, p.stock, COALESCE(p.description,''),
+		SELECT p.id, p.article, p.name_raw, COALESCE(p.product_type,''),
+		       COALESCE(p.price,0), COALESCE(p.stock,0), COALESCE(p.description,''),
 		       p.brand_id, COALESCE(b.name,''),
 		       p.series_id, COALESCE(s.name,''),
 		       p.color_id, COALESCE(c.name,''),
-		       COALESCE(p.configurator_type,''), p.is_active, p.created_at
+		       COALESCE(p.configurator_type,''), COALESCE(p.is_active,true), p.created_at
 		FROM products p
 		LEFT JOIN brands b ON b.id = p.brand_id
 		LEFT JOIN product_series s ON s.id = p.series_id
