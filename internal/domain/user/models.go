@@ -50,6 +50,9 @@ type HistoryItem struct {
 	Price     float64   `json:"price"`
 	ImageURL  string    `json:"image_url"`
 	ViewedAt  time.Time `json:"viewed_at"`
+	Brand     *NameRef  `json:"brand,omitempty"`
+	Color     *NameRef  `json:"color,omitempty"`
+	Series    *NameRef  `json:"series,omitempty"`
 }
 
 type RecommendedItem struct {

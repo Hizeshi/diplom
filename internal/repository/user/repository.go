@@ -167,9 +167,13 @@ func (r *Repository) RemoveFavorite(ctx context.Context, userID string, productI
 
 func (r *Repository) GetHistory(ctx context.Context, userID string) ([]user.HistoryItem, error) {
 	const q = `
-		SELECT pv.product_id, p.name_raw, COALESCE(p.price, 0), COALESCE(pi.image_url, ''), pv.viewed_at
+		SELECT pv.product_id, p.name_raw, COALESCE(p.price, 0), COALESCE(pi.image_url, ''), pv.viewed_at,
+		       COALESCE(b.name, ''), COALESCE(c.name, ''), COALESCE(s.name, '')
 		FROM product_views pv
 		JOIN products p ON p.id = pv.product_id AND p.deleted_at IS NULL
+		LEFT JOIN brands b         ON b.id = p.brand_id
+		LEFT JOIN colors c         ON c.id = p.color_id
+		LEFT JOIN product_series s ON s.id = p.series_id
 		LEFT JOIN LATERAL (
 			SELECT image_url FROM product_images
 			WHERE product_id = p.id ORDER BY display_order LIMIT 1
@@ -186,9 +190,22 @@ func (r *Repository) GetHistory(ctx context.Context, userID string) ([]user.Hist
 
 	var items []user.HistoryItem
 	for rows.Next() {
-		var item user.HistoryItem
-		if err := rows.Scan(&item.ProductID, &item.Name, &item.Price, &item.ImageURL, &item.ViewedAt); err != nil {
+		var (
+			item                             user.HistoryItem
+			brandName, colorName, seriesName string
+		)
+		if err := rows.Scan(&item.ProductID, &item.Name, &item.Price, &item.ImageURL, &item.ViewedAt,
+			&brandName, &colorName, &seriesName); err != nil {
 			return nil, fmt.Errorf("userrepo: scan history: %w", err)
+		}
+		if brandName != "" {
+			item.Brand = &user.NameRef{Name: brandName}
+		}
+		if colorName != "" {
+			item.Color = &user.NameRef{Name: colorName}
+		}
+		if seriesName != "" {
+			item.Series = &user.NameRef{Name: seriesName}
 		}
 		items = append(items, item)
 	}
