@@ -23,6 +23,7 @@ type CartItem struct {
 type FavoriteItem struct {
 	ID        int64        `json:"id"`         // same as product_id — for frontend compatibility
 	ProductID int64        `json:"product_id"`
+	Article   string       `json:"article"`
 	Name      string       `json:"name"`
 	Price     float64      `json:"price"`
 	ImageURL  string       `json:"image_url"`
@@ -56,10 +57,14 @@ type HistoryItem struct {
 }
 
 type RecommendedItem struct {
-	ID       int64   `json:"id"`
-	Name     string  `json:"name"`
-	Price    float64 `json:"price"`
-	ImageURL string  `json:"image_url"`
+	ID       int64    `json:"id"`
+	Article  string   `json:"article"`
+	Name     string   `json:"name"`
+	Price    float64  `json:"price"`
+	ImageURL string   `json:"image_url"`
+	Brand    *NameRef `json:"brand,omitempty"`
+	Color    *NameRef `json:"color,omitempty"`
+	Series   *NameRef `json:"series,omitempty"`
 }
 
 // ─── Orders ──────────────────────────────────────────────────────────────────

@@ -72,7 +72,7 @@ func (r *Repository) RemoveCartItem(ctx context.Context, userID string, productI
 
 func (r *Repository) GetFavorites(ctx context.Context, userID string) ([]user.FavoriteItem, error) {
 	const q = `
-		SELECT f.product_id, p.name_raw, COALESCE(p.price, 0), COALESCE(pi.image_url, ''),
+		SELECT f.product_id, COALESCE(p.article, ''), p.name_raw, COALESCE(p.price, 0), COALESCE(pi.image_url, ''),
 		       COALESCE(b.name, ''), COALESCE(c.name, ''), COALESCE(s.name, '')
 		FROM favorites f
 		JOIN products p ON p.id = f.product_id AND p.deleted_at IS NULL
@@ -98,7 +98,7 @@ func (r *Repository) GetFavorites(ctx context.Context, userID string) ([]user.Fa
 			item                        user.FavoriteItem
 			brandName, colorName, seriesName string
 		)
-		if err := rows.Scan(&item.ProductID, &item.Name, &item.Price, &item.ImageURL,
+		if err := rows.Scan(&item.ProductID, &item.Article, &item.Name, &item.Price, &item.ImageURL,
 			&brandName, &colorName, &seriesName); err != nil {
 			return nil, fmt.Errorf("userrepo: scan favorite: %w", err)
 		}
@@ -244,12 +244,16 @@ func (r *Repository) GetRecommendations(ctx context.Context, userID, locale stri
 			ORDER BY viewed_at DESC
 			LIMIT 1
 		)
-		SELECT p.id, p.name_raw, p.name_i18n, COALESCE(p.price, 0), COALESCE(pi.image_url, '')
+		SELECT p.id, COALESCE(p.article, ''), p.name_raw, p.name_i18n, COALESCE(p.price, 0), COALESCE(pi.image_url, ''),
+		       COALESCE(b.name, ''), COALESCE(c.name, ''), COALESCE(s.name, '')
 		FROM product_vectors ref_vec
 		JOIN product_vectors sim_vec
 		  ON sim_vec.combined_embedding IS NOT NULL
 		  AND sim_vec.product_id != ref_vec.product_id
 		JOIN products p ON p.id = sim_vec.product_id AND p.deleted_at IS NULL AND p.is_active = true
+		LEFT JOIN brands b         ON b.id = p.brand_id
+		LEFT JOIN colors c         ON c.id = p.color_id
+		LEFT JOIN product_series s ON s.id = p.series_id
 		LEFT JOIN LATERAL (
 			SELECT image_url FROM product_images
 			WHERE product_id = p.id ORDER BY display_order LIMIT 1
@@ -266,8 +270,12 @@ func (r *Repository) GetRecommendations(ctx context.Context, userID, locale stri
 	// 2. Fallback: no view history yet → most-viewed popular products.
 	if len(items) == 0 {
 		const fallback = `
-			SELECT p.id, p.name_raw, p.name_i18n, COALESCE(p.price, 0), COALESCE(pi.image_url, '')
+			SELECT p.id, COALESCE(p.article, ''), p.name_raw, p.name_i18n, COALESCE(p.price, 0), COALESCE(pi.image_url, ''),
+			       COALESCE(b.name, ''), COALESCE(c.name, ''), COALESCE(s.name, '')
 			FROM products p
+			LEFT JOIN brands b         ON b.id = p.brand_id
+			LEFT JOIN colors c         ON c.id = p.color_id
+			LEFT JOIN product_series s ON s.id = p.series_id
 			LEFT JOIN LATERAL (
 				SELECT image_url FROM product_images
 				WHERE product_id = p.id ORDER BY display_order LIMIT 1
@@ -295,13 +303,24 @@ func (r *Repository) scanRecommendations(ctx context.Context, q, locale string, 
 	var items []user.RecommendedItem
 	for rows.Next() {
 		var (
-			item user.RecommendedItem
-			i18n product.I18nMap
+			item                             user.RecommendedItem
+			i18n                             product.I18nMap
+			brandName, colorName, seriesName string
 		)
-		if err := rows.Scan(&item.ID, &item.Name, &i18n, &item.Price, &item.ImageURL); err != nil {
+		if err := rows.Scan(&item.ID, &item.Article, &item.Name, &i18n, &item.Price, &item.ImageURL,
+			&brandName, &colorName, &seriesName); err != nil {
 			return nil, fmt.Errorf("userrepo: scan recommendation: %w", err)
 		}
 		item.Name = product.Localize(item.Name, i18n, locale)
+		if brandName != "" {
+			item.Brand = &user.NameRef{Name: brandName}
+		}
+		if colorName != "" {
+			item.Color = &user.NameRef{Name: colorName}
+		}
+		if seriesName != "" {
+			item.Series = &user.NameRef{Name: seriesName}
+		}
 		items = append(items, item)
 	}
 	return items, rows.Err()
