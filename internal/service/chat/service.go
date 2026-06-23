@@ -226,7 +226,7 @@ func (s *Service) HandleMessage(ctx context.Context, req chat.ChatRequest) (*cha
 
 	// 8. When КП is requested, recover the products discussed in recent history
 	//    and prepend them so the prompt contains the exact items the user wants.
-	if isKPRequest(req.Message) && len(productMatches) < matchCount {
+	if wantsKP(req.Message, history) && len(productMatches) < matchCount {
 		if histIDs := extractProductIDsFromHistory(history); len(histIDs) > 0 {
 			histProducts, err := s.products.GetByIDs(ctx, histIDs)
 			if err != nil {
@@ -272,7 +272,7 @@ func (s *Service) HandleMessage(ctx context.Context, req chat.ChatRequest) (*cha
 
 	// 9b. If this is a КП request with known products, auto-generate the PDF.
 	var quoteURL string
-	if isKPRequest(req.Message) && len(productMatches) > 0 {
+	if wantsKP(req.Message, history) && len(productMatches) > 0 {
 		qty := extractQuantity(req.Message)
 		items := make([]quote.Item, 0, len(productMatches))
 		for _, p := range productMatches {

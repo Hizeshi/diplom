@@ -150,6 +150,64 @@ func isKPRequest(message string) bool {
 	return false
 }
 
+// wantsKP reports whether the user wants a КП assembled — either by explicit
+// request, or by confirming a КП offer the assistant just made (so a bare
+// "да" / "давай" / "собери" in reply to "могу оформить КП?" works).
+func wantsKP(message string, history []chat.Message) bool {
+	if isKPRequest(message) {
+		return true
+	}
+	return assistantOfferedKP(history) && isAffirmative(message)
+}
+
+// isAffirmative detects a short confirmation reply. Length-bounded so a new
+// question that merely starts with "да" is not mistaken for a confirmation.
+func isAffirmative(message string) bool {
+	msg := strings.ToLower(strings.TrimSpace(message))
+	msg = strings.Trim(msg, " .!,)?–-\"")
+	if msg == "" || len([]rune(msg)) > 25 {
+		return false
+	}
+	affirmatives := []string{
+		"да", "ага", "угу", "конечно", "давай", "давайте", "ок", "окей",
+		"хорошо", "согласен", "согласна", "да давай", "да конечно", "да хочу",
+		"да, хочу", "да, давай", "да, конечно", "хочу", "можно", "сделай",
+		"сделайте", "соберите", "собери", "оформите", "да пожалуйста",
+		"давай да", "ну давай", "валяй", "yes", "ok", "окей давай",
+	}
+	for _, a := range affirmatives {
+		if msg == a {
+			return true
+		}
+	}
+	return false
+}
+
+// assistantOfferedKP reports whether the most recent assistant message offered
+// to assemble a КП, so a bare affirmative can be read as confirmation.
+func assistantOfferedKP(history []chat.Message) bool {
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role != "assistant" {
+			continue
+		}
+		msg := strings.ToLower(history[i].Content)
+		if !strings.Contains(msg, "кп") && !strings.Contains(msg, "коммерческое предложение") {
+			return false
+		}
+		offerVerbs := []string{
+			"могу", "хотите", "хотели", "оформ", "собр", "сформир",
+			"подготов", "составл", "составить", "предлож", "сделать",
+		}
+		for _, v := range offerVerbs {
+			if strings.Contains(msg, v) {
+				return true
+			}
+		}
+		return false // only the latest assistant message matters
+	}
+	return false
+}
+
 // extractProductIDsFromHistory collects product_ids saved in the last 5
 // assistant messages so we can re-fetch them when building a КП.
 func extractProductIDsFromHistory(history []chat.Message) []int64 {
