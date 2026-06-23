@@ -312,7 +312,10 @@ func (s *Service) HandleMessage(ctx context.Context, req chat.ChatRequest) (*cha
 		assistantMeta["product_ids"] = ids
 	}
 	if quoteURL != "" {
-		assistantMeta["quote_url"] = quoteURL
+		// Frontend reads meta.kp_pdf_url (live + realtime/DB paths) to render the
+		// КП PDF button. Storing it under this key makes the button appear after
+		// the message is reloaded from history or arrives via realtime.
+		assistantMeta["kp_pdf_url"] = quoteURL
 	}
 	if err := s.repo.SaveMessage(ctx, req.SessionID, "assistant", answer, "assistant", "text", assistantMeta, ""); err != nil {
 		s.log.Warn("chat: save assistant message failed", "session", req.SessionID, "err", err)
