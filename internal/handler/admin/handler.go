@@ -464,6 +464,13 @@ func (h *Handler) UpdateOrderStatus(w http.ResponseWriter, r *http.Request) {
 		respond.BadRequest(w, "status required")
 		return
 	}
+	// Must match the DB CHECK constraint (migration 00009) to avoid a 500 on violation.
+	switch body.Status {
+	case "new", "confirmed", "processing", "cancelled":
+	default:
+		respond.BadRequest(w, "invalid status")
+		return
+	}
 	if err := h.svc.UpdateOrderStatus(r.Context(), id, body.Status); err != nil {
 		respond.InternalError(w)
 		return
