@@ -354,9 +354,14 @@ func (r *Repository) GetUserDetail(ctx context.Context, id string) (*admin.UserD
 
 	// Favorites
 	rows, err = r.db.Query(ctx, `
-		SELECT f.product_id, p.name_raw, COALESCE(p.price,0)
+		SELECT f.product_id, p.name_raw, COALESCE(p.price,0),
+		       COALESCE(p.article,''), COALESCE(pi.image_url,'')
 		FROM favorites f
 		JOIN products p ON p.id = f.product_id
+		LEFT JOIN LATERAL (
+			SELECT image_url FROM product_images
+			WHERE product_id = p.id ORDER BY display_order LIMIT 1
+		) pi ON true
 		WHERE f.user_id = $1
 		ORDER BY f.created_at DESC`, id)
 	if err != nil {
@@ -364,7 +369,7 @@ func (r *Repository) GetUserDetail(ctx context.Context, id string) (*admin.UserD
 	}
 	for rows.Next() {
 		var f admin.UserFavoriteItem
-		if err := rows.Scan(&f.ProductID, &f.Name, &f.Price); err != nil {
+		if err := rows.Scan(&f.ProductID, &f.Name, &f.Price, &f.Article, &f.Image); err != nil {
 			rows.Close()
 			return nil, err
 		}

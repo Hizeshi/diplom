@@ -119,9 +119,11 @@ type UserDetail struct {
 }
 
 type UserFavoriteItem struct {
-	ProductID int64  `json:"product_id"`
-	Name      string `json:"name"`
+	ProductID int64   `json:"product_id"`
+	Name      string  `json:"name"`
 	Price     float64 `json:"price"`
+	Article   string  `json:"article"`
+	Image     string  `json:"image"`
 }
 
 type UserOrder struct {
